@@ -1,0 +1,967 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Organic Growth Algorithms</title>
+<style>
+  :root {
+    --bg: #f4f1ea;
+    --card: #fffdf8;
+    --line: #e2ddd0;
+    --ink: #2b2a26;
+    --muted: #8a857a;
+    --accent: #3f7d4e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #131412;
+      --card: #1c1e1b;
+      --line: #2d302b;
+      --ink: #e8e4da;
+      --muted: #8f8b80;
+      --accent: #84c47e;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #131412;
+    --card: #1c1e1b;
+    --line: #2d302b;
+    --ink: #e8e4da;
+    --muted: #8f8b80;
+    --accent: #84c47e;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  header {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 40px 16px 8px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  h1 { margin: 0; font-size: 28px; font-weight: 650; letter-spacing: -0.02em; }
+  header p { margin: 4px 0 0; color: var(--muted); max-width: 60ch; }
+  button {
+    font: inherit;
+    font-size: 13px;
+    color: var(--ink);
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--muted); }
+  main {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 16px 16px 48px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .card canvas {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1;
+    border-bottom: 1px solid var(--line);
+  }
+  .meta { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .num { font: 600 12px ui-monospace, Menlo, monospace; color: var(--muted); }
+  .meta h2 { margin: 0; font-size: 15px; font-weight: 620; flex: 1; }
+  .tag {
+    font-size: 11px;
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-radius: 999px;
+    padding: 1px 8px;
+    white-space: nowrap;
+  }
+  .meta p { margin: 0; font-size: 13px; color: var(--muted); }
+  .meta button { padding: 2px 8px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Organic growth algorithms</h1>
+    <p>Twelve ways to grow tree-like forms, each running live in its own canvas. Every run is random, so press regenerate to grow a new one.</p>
+  </div>
+  <button id="all">Regenerate all</button>
+</header>
+<main id="grid"></main>
+
+<script>
+const W = 400;                       // every demo draws in a 400×400 logical space
+const TAU = Math.PI * 2;
+const rand = (a, b) => (b === undefined ? Math.random() * a : a + Math.random() * (b - a));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+// ---------- shared helpers ----------
+
+const noise2 = (() => {
+  const p = new Uint8Array(512);
+  const perm = [...Array(256).keys()];
+  for (let i = 255; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [perm[i], perm[j]] = [perm[j], perm[i]]; }
+  for (let i = 0; i < 512; i++) p[i] = perm[i & 255];
+  const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
+  const lerp = (t, a, b) => a + t * (b - a);
+  const grad = (h, x, y) => {
+    switch (h & 7) {
+      case 0: return x + y; case 1: return -x + y; case 2: return x - y; case 3: return -x - y;
+      case 4: return x; case 5: return -x; case 6: return y; default: return -y;
+    }
+  };
+  return (x, y) => {
+    const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+    x -= Math.floor(x); y -= Math.floor(y);
+    const u = fade(x), v = fade(y);
+    const a = p[X] + Y, b = p[X + 1] + Y;
+    return lerp(v, lerp(u, grad(p[a], x, y), grad(p[b], x - 1, y)),
+                   lerp(u, grad(p[a + 1], x, y - 1), grad(p[b + 1], x - 1, y - 1)));
+  };
+})();
+
+// Murray's law: r_parent³ = Σ r_child³. Nodes must be stored parent-before-child.
+function murray(nodes, r0 = 1) {
+  const n = nodes.length, acc = new Float32Array(n), r = new Float32Array(n);
+  for (let i = n - 1; i >= 0; i--) {
+    r[i] = acc[i] > 0 ? Math.cbrt(acc[i]) : r0;
+    const p = nodes[i].parent;
+    if (p >= 0) acc[p] += r[i] ** 3;
+  }
+  return r;
+}
+
+function drawTree(ctx, nodes, color, { k = 0.6, min = 0.5, max = 12, map = null } = {}) {
+  const r = murray(nodes);
+  ctx.strokeStyle = color;
+  ctx.lineCap = "round";
+  for (let i = 0; i < nodes.length; i++) {
+    const nd = nodes[i];
+    if (nd.parent < 0) continue;
+    const p = nodes[nd.parent];
+    const a = map ? map(p) : p, b = map ? map(nd) : nd;
+    ctx.lineWidth = clamp(r[i] * k, min, max);
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+  return r;
+}
+
+function tips(nodes) {
+  const hasChild = new Uint8Array(nodes.length);
+  for (const n of nodes) if (n.parent >= 0) hasChild[n.parent] = 1;
+  return nodes.filter((_, i) => !hasChild[i]);
+}
+
+function dots(ctx, pts, color, radius, alpha = 1) {
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  for (const p of pts) { ctx.moveTo(p.x + radius, p.y); ctx.arc(p.x, p.y, radius, 0, TAU); }
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+// ---------- 01 · L-system ----------
+
+function* lsystem({ ctx, col }) {
+  const rules = {
+    X: ["F[+X][-X]FX", "F[-X]FX", "F[+X]F[-X]X", "F[+X][-X]F[+X]X"],
+    F: ["FF", "FF", "F"],
+  };
+  let s = "X";
+  for (let i = 0; i < 6; i++) {
+    let o = "";
+    for (const ch of s) { const r = rules[ch]; o += r ? r[(Math.random() * r.length) | 0] : ch; }
+    s = o;
+  }
+  // Turtle interpretation; record arc length so we can draw in growth order.
+  const segs = [];
+  let t = { x: 0, y: 0, a: -Math.PI / 2, d: 0, dist: 0 };
+  const stack = [];
+  const base = 0.42;
+  for (const ch of s) {
+    if (ch === "F") {
+      const a = t.a + rand(-0.05, 0.05);
+      const nx = t.x + Math.cos(a), ny = t.y + Math.sin(a);
+      segs.push({ x1: t.x, y1: t.y, x2: nx, y2: ny, d: t.d, dist: t.dist });
+      t = { ...t, x: nx, y: ny, dist: t.dist + 1 };
+    } else if (ch === "+") t.a += base + rand(-0.14, 0.14);
+    else if (ch === "-") t.a -= base + rand(-0.14, 0.14);
+    else if (ch === "[") { stack.push(t); t = { ...t, d: t.d + 1 }; }
+    else if (ch === "]") { segs.push({ leaf: true, x1: t.x, y1: t.y, dist: t.dist }); t = stack.pop(); }
+  }
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const g of segs) { x0 = Math.min(x0, g.x1); x1 = Math.max(x1, g.x1); y0 = Math.min(y0, g.y1); y1 = Math.max(y1, g.y1); }
+  const sc = Math.min(350 / (x1 - x0), 360 / (y1 - y0));
+  const ox = 200 - ((x0 + x1) / 2) * sc, oy = 390 - y1 * sc;
+  segs.sort((a, b) => a.dist - b.dist);
+  ctx.lineCap = "round";
+  const per = Math.ceil(segs.length / 110);
+  for (let i = 0; i < segs.length; i += per) {
+    for (const g of segs.slice(i, i + per)) {
+      if (g.leaf) {
+        ctx.fillStyle = col.accent; ctx.globalAlpha = 0.75;
+        ctx.beginPath(); ctx.arc(g.x1 * sc + ox, g.y1 * sc + oy, 2.2, 0, TAU); ctx.fill();
+        ctx.globalAlpha = 1;
+      } else {
+        ctx.strokeStyle = col.ink;
+        ctx.lineWidth = Math.max(0.6, 5 * 0.66 ** g.d);
+        ctx.beginPath(); ctx.moveTo(g.x1 * sc + ox, g.y1 * sc + oy); ctx.lineTo(g.x2 * sc + ox, g.y2 * sc + oy); ctx.stroke();
+      }
+    }
+    yield;
+  }
+}
+
+// ---------- 02 · Recursive branching ----------
+
+function* recursive({ ctx, col }) {
+  const levels = [];
+  (function br(x, y, a, len, w, d) {
+    const x2 = x + Math.cos(a) * len, y2 = y + Math.sin(a) * len;
+    (levels[d] ||= []).push({ x, y, x2, y2, w, leaf: d >= 9 || len < 5 });
+    if (d >= 9 || len < 5) return;
+    const n = Math.random() < 0.25 ? 3 : 2;
+    for (let i = 0; i < n; i++) {
+      let na = a + (n === 2 ? (i ? 1 : -1) * rand(0.22, 0.55) : (i - 1) * rand(0.35, 0.6)) + rand(-0.1, 0.1);
+      na += (-Math.PI / 2 - na) * 0.08;  // gentle upward tropism
+      br(x2, y2, na, len * rand(0.66, 0.8), w * 0.7, d + 1);
+    }
+  })(200, 395, -Math.PI / 2, 82, 10, 0);
+
+  ctx.lineCap = "round";
+  ctx.strokeStyle = col.ink;
+  const F = 7;
+  for (const lvl of levels) {
+    for (let f = 1; f <= F; f++) {
+      const t = f / F;
+      for (const s of lvl) {
+        ctx.lineWidth = Math.max(0.6, s.w);
+        ctx.beginPath(); ctx.moveTo(s.x, s.y);
+        ctx.lineTo(s.x + (s.x2 - s.x) * t, s.y + (s.y2 - s.y) * t); ctx.stroke();
+      }
+      yield;
+    }
+  }
+  dots(ctx, levels.flat().filter(s => s.leaf).map(s => ({ x: s.x2, y: s.y2 })), col.accent, 2.2, 0.75);
+}
+
+// ---------- 03 · Space colonization ----------
+
+function* spaceColonization({ ctx, col }) {
+  const A = [];
+  while (A.length < 650) {
+    const x = rand(30, 370), y = rand(20, 290);
+    const ang = Math.atan2(y - 160, x - 200);
+    const rr = 1 + 0.18 * noise2(Math.cos(ang) * 1.5 + 5, Math.sin(ang) * 1.5);
+    const dx = (x - 200) / (165 * rr), dy = (y - 160) / (120 * rr);
+    if (dx * dx + dy * dy < 1) A.push({ x, y, alive: true });
+  }
+  const di = 60, dk = 7, D = 5;
+  const nodes = [{ x: 200, y: 396, parent: -1 }];
+  const near = n => A.some(a => (a.x - n.x) ** 2 + (a.y - n.y) ** 2 < di * di);
+  while (!near(nodes[nodes.length - 1])) {
+    const n = nodes[nodes.length - 1];
+    nodes.push({ x: n.x + rand(-0.6, 0.6), y: n.y - D, parent: nodes.length - 1 });
+  }
+  const draw = final => {
+    ctx.clearRect(0, 0, W, W);
+    dots(ctx, A.filter(a => a.alive), col.muted, 1.3, 0.5);
+    drawTree(ctx, nodes, col.ink, { k: 0.85, max: 14 });
+    if (final) dots(ctx, tips(nodes), col.accent, 2.3, 0.7);
+  };
+  let stall = 0, lastAlive = A.length;
+  for (let it = 0; it < 400; it++) {
+    const pull = new Map();
+    for (const a of A) {
+      if (!a.alive) continue;
+      let best = -1, bd = di * di;
+      for (let i = 0; i < nodes.length; i++) {
+        const d = (a.x - nodes[i].x) ** 2 + (a.y - nodes[i].y) ** 2;
+        if (d < bd) { bd = d; best = i; }
+      }
+      if (best < 0) continue;
+      if (bd < dk * dk) { a.alive = false; continue; }
+      const len = Math.sqrt(bd), v = pull.get(best) || { x: 0, y: 0 };
+      v.x += (a.x - nodes[best].x) / len; v.y += (a.y - nodes[best].y) / len;
+      pull.set(best, v);
+    }
+    let grew = 0;
+    for (const [i, v] of pull) {
+      v.y -= 0.15;  // slight upward bias
+      const len = Math.hypot(v.x, v.y);
+      if (len < 1e-3) continue;
+      nodes.push({ x: nodes[i].x + (v.x / len) * D, y: nodes[i].y + (v.y / len) * D, parent: i });
+      grew++;
+    }
+    const alive = A.filter(a => a.alive).length;
+    stall = alive === lastAlive ? stall + 1 : 0;
+    lastAlive = alive;
+    draw(false);
+    yield;
+    if (!grew || stall > 25) break;
+  }
+  draw(true);
+}
+
+// ---------- 04 · Self-organizing tree (bud competition for light) ----------
+
+function* selfOrganizing({ ctx, col }) {
+  const CS = 5, G = W / CS;
+  const L = 5.5, lambda = 0.52, alpha = 2.4, shadowA = 1, shadowB = 1.9, qmax = 7, xi = 0.35, eta = 0.12;
+  const nodes = [{ x: 200, y: 396, parent: -1, dx: 0, dy: -1, main: -1, lat: -1, latBud: false }];
+  for (let i = 0; i < 8; i++) {
+    const p = nodes[nodes.length - 1];
+    nodes.push({ x: p.x, y: p.y - L, parent: nodes.length - 1, dx: 0, dy: -1, main: -1, lat: -1, latBud: false });
+    p.main = nodes.length - 1;
+  }
+  let side = 1;
+  const cell = (x, y) => {
+    const i = Math.floor(x / CS), j = Math.floor(y / CS);
+    return i < 0 || j < 0 || i >= G || j >= G ? -1 : j * G + i;
+  };
+  const draw = final => {
+    ctx.clearRect(0, 0, W, W);
+    drawTree(ctx, nodes, col.ink, { k: 0.8, max: 13 });
+    if (final) dots(ctx, tips(nodes), col.accent, 2.3, 0.7);
+  };
+
+  for (let it = 0; it < 28 && nodes.length < 3500; it++) {
+    // 1. shadow propagation: every node darkens a pyramid of cells below it
+    const shadow = new Float32Array(G * G);
+    for (const n of nodes) {
+      const ci = Math.floor(n.x / CS), cj = Math.floor(n.y / CS);
+      for (let q = 0; q <= qmax; q++) {
+        const j = cj + q; if (j >= G) break;
+        const v = shadowA * shadowB ** -q;
+        for (let p = -q; p <= q; p++) { const i = ci + p; if (i >= 0 && i < G) shadow[j * G + i] += v; }
+      }
+    }
+    const light = n => { const c = cell(n.x, n.y); return c < 0 ? 0 : Math.max(0, 1 - shadow[c] + shadowA); };
+    const shade = (x, y) => { const c = cell(x, y); return c < 0 ? 4 : shadow[c]; };
+
+    // 2. basipetal pass: gather light from buds towards the base
+    const n = nodes.length, Q = new Float32Array(n), Qm = new Float32Array(n), Ql = new Float32Array(n);
+    for (let i = n - 1; i >= 0; i--) {
+      const nd = nodes[i];
+      Qm[i] = nd.main >= 0 ? Q[nd.main] : light(nd);
+      Ql[i] = nd.lat >= 0 ? Q[nd.lat] : nd.latBud ? light(nd) : 0;
+      Q[i] = Qm[i] + Ql[i];
+    }
+    // 3. acropetal pass: distribute growth resource (Borchert–Honda)
+    const v = new Float32Array(n), shoots = [];
+    v[0] = alpha * Q[0];
+    for (let i = 0; i < n; i++) {
+      const nd = nodes[i], den = lambda * Qm[i] + (1 - lambda) * Ql[i];
+      if (den <= 0 || v[i] <= 0) continue;
+      const vm = (v[i] * lambda * Qm[i]) / den, vl = v[i] - vm;
+      if (nd.main >= 0) v[nd.main] = vm; else shoots.push([i, vm, false]);
+      if (nd.lat >= 0) v[nd.lat] = vl; else if (nd.latBud) shoots.push([i, vl, true]);
+    }
+    // 4. grow shoots towards the least-shaded neighbourhood
+    for (const [i, vv, isLat] of shoots) {
+      const count = Math.min(4, Math.floor(vv + Math.random()));
+      if (count < 1) continue;
+      let prev = i, dx = isLat ? nodes[i].ldx : nodes[i].dx, dy = isLat ? nodes[i].ldy : nodes[i].dy;
+      for (let k = 0; k < count; k++) {
+        const p = nodes[prev];
+        // optimal direction: down the local shadow gradient
+        let ox = 0, oy = 0;
+        const s0 = shade(p.x, p.y);
+        for (let a = 0; a < 8; a++) {
+          const cx = Math.cos(a * TAU / 8), cy = Math.sin(a * TAU / 8);
+          const ds = s0 - shade(p.x + cx * CS * 2, p.y + cy * CS * 2);
+          ox += cx * ds; oy += cy * ds;
+        }
+        const om = Math.hypot(ox, oy);
+        if (om > 1e-6) { ox /= om; oy /= om; }
+        let nx = dx + xi * ox, ny = dy + xi * oy - eta;
+        const len = Math.hypot(nx, ny); nx /= len; ny /= len;
+        const x = p.x + nx * L, y = p.y + ny * L;
+        if (x < 8 || x > W - 8 || y < 22 || y > W - 4) break;
+        side = -side;
+        const ang = side * rand(0.6, 0.95);
+        nodes.push({
+          x, y, parent: prev, dx: nx, dy: ny, main: -1, lat: -1, latBud: true,
+          ldx: nx * Math.cos(ang) - ny * Math.sin(ang), ldy: nx * Math.sin(ang) + ny * Math.cos(ang),
+        });
+        const id = nodes.length - 1;
+        if (k === 0 && isLat) nodes[i].lat = id; else nodes[prev].main = id;
+        prev = id; dx = nx; dy = ny;
+      }
+    }
+    draw(false);
+    for (let f = 0; f < 4; f++) yield;
+  }
+  draw(true);
+}
+
+// ---------- 05 · Diffusion-limited aggregation ----------
+
+function* dla({ ctx, col }) {
+  const N = 200, CS = W / N;
+  const occ = new Int32Array(N * N).fill(-1);
+  const nodes = [{ x: 100, y: N - 1, parent: -1 }];
+  occ[(N - 1) * N + 100] = 0;
+  let top = N - 1, minX = 100, maxX = 100;
+  const toPx = n => ({ x: n.x * CS + CS / 2, y: n.y * CS + CS / 2 });
+  let px = 0, py = 0;
+  const spawn = () => {
+    py = Math.max(0, top - 14);
+    px = clamp(Math.floor(rand(minX - 25, maxX + 25)), 0, N - 1);
+  };
+  spawn();
+  while (nodes.length < 2600) {
+    for (let step = 0; step < 90000; step++) {
+      const r = Math.random();
+      if (r < 0.32) py++; else if (r < 0.5) py--; else if (r < 0.75) px--; else px++;
+      if (px < 1 || px >= N - 1 || py >= N - 1 || py < top - 30) { spawn(); continue; }
+      let hit = -1;
+      for (let oy = -1; oy <= 1 && hit < 0; oy++)
+        for (let ox = -1; ox <= 1; ox++) {
+          const o = occ[(py + oy) * N + px + ox];
+          if (o >= 0) { hit = o; break; }
+        }
+      if (hit >= 0) {
+        nodes.push({ x: px, y: py, parent: hit });
+        occ[py * N + px] = nodes.length - 1;
+        top = Math.min(top, py); minX = Math.min(minX, px); maxX = Math.max(maxX, px);
+        if (py <= 2) break;
+        spawn();
+      }
+    }
+    ctx.clearRect(0, 0, W, W);
+    drawTree(ctx, nodes, col.ink, { k: 0.55, max: 7, map: toPx });
+    yield;
+    if (top <= 2) break;
+  }
+}
+
+// ---------- 06 · Differential growth ----------
+
+function* differentialGrowth({ ctx, col }) {
+  let pts = [];
+  for (let i = 0; i < 40; i++) {
+    const a = (i / 40) * TAU;
+    pts.push({ x: 200 + Math.cos(a) * 18, y: 200 + Math.sin(a) * 18 });
+  }
+  const R = 11, maxEdge = 6;
+  for (let frame = 0; frame < 900 && pts.length < 2200; frame++) {
+    for (let sub = 0; sub < 2; sub++) {
+      const hash = new Map();
+      pts.forEach((p, i) => {
+        const key = Math.floor(p.x / R) * 1000 + Math.floor(p.y / R);
+        (hash.get(key) || hash.set(key, []).get(key)).push(i);
+      });
+      const n = pts.length;
+      const next = pts.map((p, i) => {
+        const a = pts[(i - 1 + n) % n], b = pts[(i + 1) % n];
+        let fx = ((a.x + b.x) / 2 - p.x) * 0.35, fy = ((a.y + b.y) / 2 - p.y) * 0.35;
+        const cx = Math.floor(p.x / R), cy = Math.floor(p.y / R);
+        let sx = 0, sy = 0;
+        for (let ox = -1; ox <= 1; ox++)
+          for (let oy = -1; oy <= 1; oy++) {
+            const bucket = hash.get((cx + ox) * 1000 + cy + oy);
+            if (!bucket) continue;
+            for (const j of bucket) {
+              if (j === i) continue;
+              const dx = p.x - pts[j].x, dy = p.y - pts[j].y, d = Math.hypot(dx, dy);
+              if (d > 0 && d < R) { const f = (R - d) / R; sx += (dx / d) * f; sy += (dy / d) * f; }
+            }
+          }
+        fx += sx * 0.55; fy += sy * 0.55;
+        const m = Math.hypot(fx, fy);
+        if (m > 1.2) { fx *= 1.2 / m; fy *= 1.2 / m; }
+        let x = p.x + fx, y = p.y + fy;
+        const r = Math.hypot(x - 200, y - 200);
+        if (r > 185) { x = 200 + ((x - 200) / r) * 185; y = 200 + ((y - 200) / r) * 185; }
+        return { x, y };
+      });
+      pts = [];
+      for (let i = 0; i < n; i++) {
+        const p = next[i], q = next[(i + 1) % n];
+        pts.push(p);
+        if (Math.hypot(q.x - p.x, q.y - p.y) > maxEdge || Math.random() < 0.002)
+          pts.push({ x: (p.x + q.x) / 2 + rand(-0.3, 0.3), y: (p.y + q.y) / 2 + rand(-0.3, 0.3) });
+      }
+    }
+    ctx.clearRect(0, 0, W, W);
+    ctx.beginPath();
+    pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    ctx.closePath();
+    ctx.globalAlpha = 0.16; ctx.fillStyle = col.accent; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.lineJoin = "round"; ctx.lineWidth = 1.3; ctx.strokeStyle = col.ink; ctx.stroke();
+    yield;
+  }
+}
+
+// ---------- 07 · Leaf venation (open venation, growing blade) ----------
+
+function* venation({ ctx, col }) {
+  const bx = 200, by = 362, len = 330;
+  const halfW = t => (t <= 0 || t >= 1 ? 0 : 128 * Math.sin(Math.PI * t ** 0.78) * (1 - 0.25 * t));
+  const inside = (x, y) => { const t = (by - y) / len; return Math.abs(x - bx) < halfW(t) - 3; };
+  const S = [], nodes = [{ x: bx, y: by, parent: -1 }];
+  const map = s => p => ({ x: bx + (p.x - bx) * s, y: by + (p.y - by) * s });
+  const draw = (s, final) => {
+    const m = map(s);
+    ctx.clearRect(0, 0, W, W);
+    ctx.beginPath();
+    for (let i = 0; i <= 60; i++) { const t = i / 60, p = m({ x: bx + halfW(t), y: by - t * len }); i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); }
+    for (let i = 60; i >= 0; i--) { const t = i / 60, p = m({ x: bx - halfW(t), y: by - t * len }); ctx.lineTo(p.x, p.y); }
+    ctx.globalAlpha = 0.16; ctx.fillStyle = col.accent; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = col.accent; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.strokeStyle = col.ink; ctx.lineWidth = 3 * Math.sqrt(s) + 0.5; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx, by + 34 * s); ctx.stroke();
+    if (!final) dots(ctx, S.map(m), col.accent, 1.6, 0.9);
+    drawTree(ctx, nodes, col.ink, { k: 0.38, min: 0.35, max: 5, map: m });
+  };
+  let idle = 0;
+  for (let it = 0; it < 520; it++) {
+    const s = Math.min(1, 0.18 + it * 0.0045);   // the blade expands while veins grow
+    const bs = 13 / s, bv = 9 / s, dk = 5 / s, D = 3.2 / s;
+    // dart-throwing: new auxin sources appear where there is room
+    let added = 0;
+    for (let k = 0; k < 40; k++) {
+      const x = rand(bx - 130, bx + 130), y = rand(by - len, by);
+      if (!inside(x, y)) continue;
+      if (S.some(q => (q.x - x) ** 2 + (q.y - y) ** 2 < bs * bs)) continue;
+      if (nodes.some(q => (q.x - x) ** 2 + (q.y - y) ** 2 < bv * bv)) continue;
+      S.push({ x, y }); added++;
+    }
+    const pull = new Map(), dead = new Set();
+    S.forEach((a, si) => {
+      let best = -1, bd = Infinity;
+      for (let i = 0; i < nodes.length; i++) {
+        const d = (a.x - nodes[i].x) ** 2 + (a.y - nodes[i].y) ** 2;
+        if (d < bd) { bd = d; best = i; }
+      }
+      if (bd < dk * dk) { dead.add(si); return; }
+      const l = Math.sqrt(bd), v = pull.get(best) || { x: 0, y: 0 };
+      v.x += (a.x - nodes[best].x) / l; v.y += (a.y - nodes[best].y) / l;
+      pull.set(best, v);
+    });
+    for (const [i, v] of pull) {
+      const l = Math.hypot(v.x, v.y);
+      if (l < 1e-3) continue;
+      nodes.push({ x: nodes[i].x + (v.x / l) * D, y: nodes[i].y + (v.y / l) * D, parent: i });
+    }
+    for (let i = S.length - 1; i >= 0; i--) if (dead.has(i)) S.splice(i, 1);
+    idle = !added && !S.length ? idle + 1 : 0;
+    draw(s, false);
+    yield;
+    if (s >= 1 && idle > 6) break;
+  }
+  draw(1, true);
+}
+
+// ---------- 08 · Flow-field branches ----------
+
+function* flowField({ ctx, col }) {
+  const ox = rand(100), oy = rand(100);
+  let agents = [{ x: 200, y: 398, a: -Math.PI / 2, base: -Math.PI / 2, w: 9, age: 0 }];
+  const leaves = [];
+  ctx.lineCap = "round";
+  ctx.strokeStyle = col.ink;
+  while (agents.length) {
+    for (let sub = 0; sub < 3; sub++) {
+      const next = [];
+      for (const g of agents) {
+        const n = noise2(g.x * 0.009 + ox, g.y * 0.009 + oy);
+        g.base += (-Math.PI / 2 - g.base) * 0.004 + ((200 - g.x) / 200) * 0.004;
+        if (g.x < 60) g.base += 0.02; else if (g.x > W - 60) g.base -= 0.02;  // steer away from the sides
+        const target = g.base + n * 1.9;
+        g.a += (target - g.a) * 0.09 + rand(-0.04, 0.04);
+        const x = g.x + Math.cos(g.a) * 1.6, y = g.y + Math.sin(g.a) * 1.6;
+        ctx.lineWidth = g.w;
+        ctx.beginPath(); ctx.moveTo(g.x, g.y); ctx.lineTo(x, y); ctx.stroke();
+        g.x = x; g.y = y; g.w *= 0.993; g.age++;
+        if (g.w < 0.4 || x < 2 || x > W - 2 || y < 2 || y > W) { leaves.push({ x, y }); continue; }
+        if (g.age > 14 && Math.random() < 0.03 && agents.length + next.length < 500) {
+          const s = Math.random() < 0.5 ? 1 : -1;
+          next.push({ x, y, a: g.a + s * rand(0.4, 0.8), base: g.base + s * rand(0.4, 0.9), w: g.w * 0.72, age: 0 });
+          g.w *= 0.85; g.base -= s * 0.15; g.age = 0;
+        }
+        next.push(g);
+      }
+      agents = next;
+    }
+    yield;
+  }
+  dots(ctx, leaves, col.accent, 2.2, 0.75);
+}
+
+// ---------- 09 · Dielectric breakdown (Laplacian growth) ----------
+
+function* dielectric({ ctx, col }) {
+  const N = 100, CS = W / N, eta = 1.0, omega = 1.85;
+  const phi = new Float32Array(N * N), pat = new Int32Array(N * N).fill(-1);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) phi[y * N + x] = 1 - y / (N - 1);
+  const nodes = [{ x: 50, y: N - 1, parent: -1 }];
+  pat[(N - 1) * N + 50] = 0; phi[(N - 1) * N + 50] = 0;
+  const relax = sweeps => {
+    for (let s = 0; s < sweeps; s++)
+      for (let y = 1; y < N; y++)
+        for (let x = 0; x < N; x++) {
+          const i = y * N + x;
+          if (pat[i] >= 0) { phi[i] = 0; continue; }
+          const l = x > 0 ? phi[i - 1] : phi[i + 1], r = x < N - 1 ? phi[i + 1] : phi[i - 1];
+          const u = phi[i - N], d = y < N - 1 ? phi[i + N] : phi[i - N];
+          phi[i] += omega * ((l + r + u + d) / 4 - phi[i]);
+        }
+  };
+  relax(120);
+  const off = document.createElement("canvas");
+  off.width = off.height = N;
+  const octx = off.getContext("2d"), img = octx.createImageData(N, N);
+  const [ar, ag, ab] = col.accentRGB;
+  const toPx = n => ({ x: n.x * CS + CS / 2, y: n.y * CS + CS / 2 });
+  let done = false;
+  while (!done && nodes.length < 1300) {
+    for (let g = 0; g < 3 && !done; g++) {
+      const cand = [], w = [];
+      let total = 0;
+      for (let y = 1; y < N; y++)
+        for (let x = 1; x < N - 1; x++) {
+          const i = y * N + x;
+          if (pat[i] >= 0) continue;
+          let par = -1;
+          for (let oy = -1; oy <= 1 && par < 0; oy++)
+            for (let ox = -1; ox <= 1; ox++) {
+              if (y + oy >= N) continue;
+              const o = pat[(y + oy) * N + x + ox];
+              if (o >= 0) { par = o; break; }
+            }
+          if (par < 0) continue;
+          const p = Math.max(0, phi[i]) ** eta;
+          cand.push([x, y, par]); w.push(p); total += p;
+        }
+      let r = Math.random() * total, k = 0;
+      while (k < w.length - 1 && (r -= w[k]) > 0) k++;
+      const [x, y, par] = cand[k];
+      nodes.push({ x, y, parent: par });
+      pat[y * N + x] = nodes.length - 1;
+      if (y <= 8) done = true;
+      relax(6);
+    }
+    for (let i = 0; i < N * N; i++) {
+      img.data[i * 4] = ar; img.data[i * 4 + 1] = ag; img.data[i * 4 + 2] = ab;
+      img.data[i * 4 + 3] = Math.max(0, phi[i]) ** 1.6 * 80;
+    }
+    octx.putImageData(img, 0, 0);
+    ctx.clearRect(0, 0, W, W);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(off, 0, 0, W, W);
+    drawTree(ctx, nodes, col.ink, { k: 0.75, max: 8, map: toPx });
+    yield;
+  }
+}
+
+// ---------- 10 · Root network (cost-balanced spanning tree) ----------
+
+function* rootNetwork({ ctx, col }) {
+  const soil = 78, root = { x: 200, y: soil };
+  const P = [];
+  while (P.length < 380) {
+    const x = rand(10, 390), y = rand(soil + 6, 392);
+    const r = Math.hypot(x - root.x, y - root.y);
+    if (r < 320 && Math.random() < (1 - r / 330) ** 0.6) P.push({ x, y });
+  }
+  const c = 0.35;   // 0 → minimum spanning tree, 1 → shortest-path star
+  const n = P.length, used = new Uint8Array(n), best = new Float32Array(n), from = new Int32Array(n);
+  const nodes = [{ ...root, parent: -1, L: 0 }];
+  for (let i = 0; i < n; i++) { best[i] = Math.hypot(P[i].x - root.x, P[i].y - root.y); from[i] = 0; }
+  const draw = () => {
+    ctx.clearRect(0, 0, W, W);
+    ctx.strokeStyle = col.muted; ctx.lineWidth = 1; ctx.setLineDash([3, 4]);
+    ctx.beginPath(); ctx.moveTo(0, soil); ctx.lineTo(W, soil); ctx.stroke(); ctx.setLineDash([]);
+    // sprout
+    ctx.strokeStyle = col.ink; ctx.lineWidth = 3; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(200, soil); ctx.quadraticCurveTo(203, soil - 22, 200, soil - 40); ctx.stroke();
+    ctx.fillStyle = col.accent;
+    for (const s of [-1, 1]) {
+      ctx.beginPath(); ctx.ellipse(200 + s * 14, soil - 38, 14, 6, s * -0.5, 0, TAU); ctx.fill();
+    }
+    dots(ctx, P.filter((_, i) => !used[i]), col.muted, 1.4, 0.6);
+    drawTree(ctx, nodes, col.ink, { k: 0.75, max: 10 });
+  };
+  for (let added = 0; added < n; ) {
+    for (let s = 0; s < 3 && added < n; s++, added++) {
+      let v = -1;
+      for (let i = 0; i < n; i++) if (!used[i] && (v < 0 || best[i] < best[v])) v = i;
+      used[v] = 1;
+      const p = nodes[from[v]];
+      nodes.push({ ...P[v], parent: from[v], L: p.L + Math.hypot(P[v].x - p.x, P[v].y - p.y) });
+      const id = nodes.length - 1, L = nodes[id].L;
+      for (let i = 0; i < n; i++) {
+        if (used[i]) continue;
+        const cost = Math.hypot(P[i].x - P[v].x, P[i].y - P[v].y) + c * L;
+        if (cost < best[i]) { best[i] = cost; from[i] = id; }
+      }
+    }
+    draw();
+    yield;
+  }
+}
+
+// ---------- 11 · Physarum (slime-mould agents) ----------
+
+function* physarum({ ctx, col }) {
+  const N = 200, CS = W / N;
+  let trail = new Float32Array(N * N), tmp = new Float32Array(N * N);
+  const food = Array.from({ length: 11 }, () => {
+    const a = rand(TAU), r = rand(45, 88);
+    return { x: 100 + Math.cos(a) * r, y: 100 + Math.sin(a) * r };
+  });
+  const agents = Array.from({ length: 4000 }, () => {
+    const a = rand(TAU), r = 95 * Math.sqrt(Math.random());
+    return { x: 100 + Math.cos(a) * r, y: 100 + Math.sin(a) * r, h: rand(TAU) };
+  });
+  const SA = 0.785, SD = 9, RA = 0.785, STEP = 1;
+  const sense = (x, y) => {
+    const i = Math.floor(x), j = Math.floor(y);
+    return i < 0 || j < 0 || i >= N || j >= N ? -1 : trail[j * N + i];
+  };
+  const off = document.createElement("canvas");
+  off.width = off.height = N;
+  const octx = off.getContext("2d"), img = octx.createImageData(N, N);
+  const [ir, ig, ib] = col.inkRGB;
+  for (let frame = 0; frame < 480; frame++) {
+    for (const f of food)
+      for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++)
+        trail[(Math.floor(f.y) + oy) * N + Math.floor(f.x) + ox] += 6;
+    for (const g of agents) {
+      const F = sense(g.x + Math.cos(g.h) * SD, g.y + Math.sin(g.h) * SD);
+      const Lf = sense(g.x + Math.cos(g.h - SA) * SD, g.y + Math.sin(g.h - SA) * SD);
+      const Rt = sense(g.x + Math.cos(g.h + SA) * SD, g.y + Math.sin(g.h + SA) * SD);
+      if (F >= Lf && F >= Rt) { /* keep heading */ }
+      else if (Lf > Rt) g.h -= RA; else if (Rt > Lf) g.h += RA; else g.h += Math.random() < 0.5 ? RA : -RA;
+      const x = g.x + Math.cos(g.h) * STEP, y = g.y + Math.sin(g.h) * STEP;
+      if (x < 0 || y < 0 || x >= N || y >= N) { g.h = rand(TAU); continue; }
+      g.x = x; g.y = y; g.h += rand(-0.1, 0.1);
+      trail[Math.floor(y) * N + Math.floor(x)] += 0.3;
+    }
+    for (let y = 0; y < N; y++)
+      for (let x = 0; x < N; x++) {
+        let s = 0;
+        for (let oy = -1; oy <= 1; oy++)
+          for (let ox = -1; ox <= 1; ox++) {
+            const yy = y + oy, xx = x + ox;
+            if (yy >= 0 && xx >= 0 && yy < N && xx < N) s += trail[yy * N + xx];
+          }
+        tmp[y * N + x] = (s / 9) * 0.9;
+      }
+    [trail, tmp] = [tmp, trail];
+    let mean = 0;
+    for (let i = 0; i < N * N; i++) mean += trail[i];
+    mean = mean / (N * N) || 1;
+    for (let i = 0; i < N * N; i++) {
+      img.data[i * 4] = ir; img.data[i * 4 + 1] = ig; img.data[i * 4 + 2] = ib;
+      img.data[i * 4 + 3] = 255 * Math.min(1, trail[i] / (mean * 12)) ** 1.3;
+    }
+    octx.putImageData(img, 0, 0);
+    ctx.clearRect(0, 0, W, W);
+    ctx.drawImage(off, 0, 0, W, W);
+    dots(ctx, food.map(f => ({ x: f.x * CS, y: f.y * CS })), col.accent, 4.5, 0.9);
+    yield;
+  }
+}
+
+// ---------- 12 · Data-driven hybrid (radial hierarchy + organic links) ----------
+
+function* hybrid({ ctx, col }) {
+  const root = { depth: 0, children: [] };
+  (function grow(n) {
+    if (n.depth >= 4 || (n.depth >= 2 && Math.random() < 0.18)) { n.value = rand(0.2, 1); return; }
+    const k = n.depth === 0 ? 6 : Math.floor(rand(2, 4.99));
+    for (let i = 0; i < k; i++) { const c = { depth: n.depth + 1, children: [], parent: n }; n.children.push(c); grow(c); }
+  })(root);
+  const all = [], leaves = [];
+  (function walk(n) { all.push(n); if (!n.children.length) leaves.push(n); n.children.forEach(walk); })(root);
+  const gap = 0.25;
+  leaves.forEach((l, i) => (l.angle = gap / 2 + (i / (leaves.length - 1)) * (TAU - gap)));
+  (function place(n) {
+    n.children.forEach(place);
+    if (n.children.length) {
+      n.angle = (n.children[0].angle + n.children[n.children.length - 1].angle) / 2;
+      n.r = Math.cbrt(n.children.reduce((s, c) => s + c.r ** 3, 0));
+    } else n.r = 0.7 + n.value * 1.3;
+  })(root);
+  const radius = d => [0, 52, 98, 140, 176][d];
+  const pos = (a, r) => ({ x: 200 + Math.cos(a - Math.PI / 2) * r, y: 200 + Math.sin(a - Math.PI / 2) * r });
+  const links = all.filter(n => n.parent).map(n => {
+    const p = n.parent, r0 = radius(p.depth), r1 = radius(n.depth), rm = (r0 + r1) / 2;
+    const j = () => rand(-7, 7);
+    const P0 = pos(p.angle, r0), P3 = pos(n.angle, r1);
+    const P1 = pos(p.angle, rm), P2 = pos(n.angle, rm);
+    P1.x += j(); P1.y += j(); P2.x += j(); P2.y += j();
+    return { n, pts: [P0, P1, P2, P3], w0: p.r * 1.1, w1: n.r * 1.1 };
+  });
+  const bez = (P, t) => {
+    const u = 1 - t;
+    return {
+      x: u * u * u * P[0].x + 3 * u * u * t * P[1].x + 3 * u * t * t * P[2].x + t * t * t * P[3].x,
+      y: u * u * u * P[0].y + 3 * u * u * t * P[1].y + 3 * u * t * t * P[2].y + t * t * t * P[3].y,
+    };
+  };
+  const taper = (L, upto) => {
+    const steps = 18, left = [], right = [];
+    for (let s = 0; s <= steps; s++) {
+      const t = (s / steps) * upto, p = bez(L.pts, t), q = bez(L.pts, Math.min(1, t + 0.01));
+      let nx = -(q.y - p.y), ny = q.x - p.x;
+      const m = Math.hypot(nx, ny) || 1; nx /= m; ny /= m;
+      const w = (L.w0 + (L.w1 - L.w0) * (t)) / 2;
+      left.push({ x: p.x + nx * w, y: p.y + ny * w }); right.push({ x: p.x - nx * w, y: p.y - ny * w });
+    }
+    ctx.beginPath();
+    left.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+    right.reverse().forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.closePath(); ctx.fill();
+  };
+  const frames = 150;
+  for (let f = 0; f <= frames; f++) {
+    const T = (f / frames) * 4.2;
+    ctx.clearRect(0, 0, W, W);
+    ctx.strokeStyle = col.line; ctx.lineWidth = 1;
+    for (let d = 1; d <= 4; d++) { ctx.beginPath(); ctx.arc(200, 200, radius(d), 0, TAU); ctx.stroke(); }
+    ctx.fillStyle = col.ink;
+    for (const L of links) {
+      const t = clamp(T - (L.n.depth - 1), 0, 1);
+      if (t > 0) taper(L, t);
+    }
+    ctx.beginPath(); ctx.arc(200, 200, root.r * 0.75, 0, TAU); ctx.fill();
+    for (const l of leaves) {
+      const t = clamp(T - l.depth, 0, 1);
+      if (t <= 0) continue;
+      const p = pos(l.angle, radius(l.depth));
+      ctx.globalAlpha = 0.8 * t; ctx.fillStyle = col.accent;
+      ctx.beginPath(); ctx.arc(p.x, p.y, (1.5 + l.value * 3.5) * t, 0, TAU); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    yield;
+  }
+}
+
+// ---------- gallery ----------
+
+const DEMOS = [
+  { title: "L-system", tag: "grammar", run: lsystem,
+    desc: "Stochastic string rewriting (X → F[+X][-X]FX …) read by a turtle. Width shrinks with bracket depth." },
+  { title: "Recursive branching", tag: "grammar", run: recursive,
+    desc: "Each branch spawns 2–3 shorter children with jittered angles and a slight upward pull." },
+  { title: "Space colonization", tag: "growth", run: spaceColonization,
+    desc: "Tips grow toward attractor points in a crown, which are removed once a tip reaches them (Runions 2007)." },
+  { title: "Self-organizing tree", tag: "growth", run: selfOrganizing,
+    desc: "Buds compete for light under a shadow-propagation grid, and growth resource flows to the best-lit ones (Palubicki 2009)." },
+  { title: "Diffusion-limited aggregation", tag: "growth", run: dla,
+    desc: "Random-walking particles drift down and stick to the cluster, giving coral- or root-like fractals." },
+  { title: "Differential growth", tag: "physics", run: differentialGrowth,
+    desc: "A closed curve whose nodes repel and cohere, and whose edges keep splitting. It buckles into folds." },
+  { title: "Leaf venation", tag: "growth", run: venation,
+    desc: "Auxin sources appear in an expanding blade and veins grow toward them, giving hierarchical open venation." },
+  { title: "Flow-field branches", tag: "physics", run: flowField,
+    desc: "Branch agents steer along a Perlin-noise field around their own heading, and taper as they go." },
+  { title: "Dielectric breakdown", tag: "physics", run: dielectric,
+    desc: "Laplacian growth: sites attach with probability φ^η from the solved potential field (shaded)." },
+  { title: "Root network", tag: "network", run: rootNetwork,
+    desc: "A spanning tree over sampled soil points with cost = edge length + 0.35 × path length to the root." },
+  { title: "Physarum", tag: "network", run: physarum,
+    desc: "4,000 slime-mould agents follow and deposit a diffusing trail, linking food sources into a network." },
+  { title: "Data-driven hybrid", tag: "data viz", run: hybrid,
+    desc: "A radial hierarchy layout, with links drawn as jittered Bézier curves tapered by Murray's law from leaf values." },
+];
+
+const grid = document.getElementById("grid");
+const cards = DEMOS.map((demo, i) => {
+  const el = document.createElement("article");
+  el.className = "card";
+  el.innerHTML = `
+    <canvas></canvas>
+    <div class="meta">
+      <div class="row">
+        <span class="num">${String(i + 1).padStart(2, "0")}</span>
+        <h2>${demo.title}</h2>
+        <span class="tag">${demo.tag}</span>
+      </div>
+      <p>${demo.desc}</p>
+      <div class="row" style="margin-top:auto;padding-top:6px"><button>↻ Regenerate</button></div>
+    </div>`;
+  grid.appendChild(el);
+  const card = { demo, el, canvas: el.querySelector("canvas"), gen: null, visible: true };
+  el.querySelector("button").onclick = () => start(card);
+  return card;
+});
+
+function hexRGB(hex) {
+  const h = hex.trim().replace("#", "");
+  return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
+}
+function colors() {
+  const cs = getComputedStyle(document.documentElement);
+  const get = n => cs.getPropertyValue(n).trim();
+  return {
+    ink: get("--ink"), accent: get("--accent"), muted: get("--muted"), line: get("--line"),
+    inkRGB: hexRGB(get("--ink")), accentRGB: hexRGB(get("--accent")),
+  };
+}
+
+function start(card) {
+  const dpr = window.devicePixelRatio || 1;
+  const px = Math.round(card.canvas.clientWidth * dpr);
+  card.canvas.width = card.canvas.height = px;
+  const ctx = card.canvas.getContext("2d");
+  ctx.setTransform(px / W, 0, 0, px / W, 0, 0);
+  ctx.clearRect(0, 0, W, W);
+  card.gen = card.demo.run({ ctx, col: colors() });
+}
+const startAll = () => cards.forEach(start);
+
+// Pause demos that are scrolled out of view.
+const io = new IntersectionObserver(entries => {
+  for (const e of entries) cards.find(c => c.el === e.target).visible = e.isIntersecting;
+});
+cards.forEach(c => io.observe(c.el));
+
+function loop() {
+  for (const c of cards) {
+    if (!c.gen || !c.visible) continue;
+    try { if (c.gen.next().done) c.gen = null; }
+    catch (err) { console.error(c.demo.title, err); c.gen = null; }
+  }
+  requestAnimationFrame(loop);
+}
+
+document.getElementById("all").onclick = startAll;
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", startAll);
+let lastW = innerWidth;
+addEventListener("resize", () => {
+  if (Math.abs(innerWidth - lastW) < 80) return;
+  lastW = innerWidth;
+  startAll();
+});
+startAll();
+loop();
+</script>
+</body>
+</html>

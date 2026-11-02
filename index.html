@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ink Sakura</title>
+<style>
+  :root {
+    --paper: #eeede9;
+    --ink: #161514;
+    --muted: #7d7a74;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 13px/1.4 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    overflow: hidden;
+  }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  .controls {
+    position: fixed;
+    left: 16px;
+    bottom: 16px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    color: var(--muted);
+  }
+  button {
+    font: inherit;
+    color: var(--ink);
+    background: rgba(238, 237, 233, 0.85);
+    border: 1px solid rgba(0,0,0,.12);
+    border-radius: 999px;
+    padding: 6px 14px;
+    cursor: pointer;
+  }
+  button:hover { border-color: rgba(0,0,0,.3); }
+  @media (max-width: 560px) { #status { display: none; } }
+</style>
+</head>
+<body>
+<canvas id="paper"></canvas>
+<canvas id="ink"></canvas>
+<div class="controls">
+  <button id="again">Paint again</button>
+  <span id="status"></span>
+</div>
+
+<script>
+// The scene is painted in a logical space 1000 units tall; its width follows the window's aspect.
+const LH = 1000;
+let LW = 1600, K = 1, GROUND = 900;   // K scales the tree so it fits narrow screens
+const TAU = Math.PI * 2;
+const INK = "22,21,20";
+const PINK = "244,228,224";     // petal body
+const BLUSH = "228,190,186";    // where the wash first pools
+const ROSE = [192, 140, 136];   // wet edge, before mixing with branch ink
+const INK_RGB = INK.split(",").map(Number), PAPER_RGB = [238, 237, 233];
+const rand = (a, b) => (b === undefined ? Math.random() * a : a + Math.random() * (b - a));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const pick = arr => arr[(Math.random() * arr.length) | 0];
+const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;
+
+// Smooth value noise in [0, 1], used for paper grain and brush wobble.
+const vnoise = (() => {
+  const P = new Float32Array(1024);
+  for (let i = 0; i < 1024; i++) P[i] = Math.random();
+  const h = (x, y) => P[(((x * 73856093) ^ (y * 19349663)) >>> 0) & 1023];
+  const s = t => t * t * (3 - 2 * t);
+  return (x, y) => {
+    const xi = Math.floor(x), yi = Math.floor(y), u = s(x - xi), v = s(y - yi);
+    const a = h(xi, yi), b = h(xi + 1, yi), c = h(xi, yi + 1), d = h(xi + 1, yi + 1);
+    return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+  };
+})();
+
+// ---------- canvases ----------
+
+const paperCv = document.getElementById("paper");
+const inkCv = document.getElementById("ink");
+const pctx = paperCv.getContext("2d");
+const ctx = inkCv.getContext("2d", { willReadFrequently: true });
+let S = 1;  // device pixels per logical unit
+
+function layout() {
+  const dpr = window.devicePixelRatio || 1;
+  LW = (LH * innerWidth) / innerHeight;
+  K = clamp(LW / 1500, 0.6, 1);   // on tall screens the crown may run off the sides rather than shrink
+  GROUND = LH * 0.9;
+  S = (innerHeight * dpr) / LH;
+  for (const cv of [paperCv, inkCv]) { cv.width = Math.round(innerWidth * dpr); cv.height = Math.round(innerHeight * dpr); }
+  pctx.setTransform(S, 0, 0, S, 0, 0);
+  ctx.setTransform(S, 0, 0, S, 0, 0);
+}
+
+function paintPaper() {
+  pctx.fillStyle = "#eeede9";
+  pctx.fillRect(0, 0, LW, LH);
+  const g = pctx.createRadialGradient(LW / 2, LH * 0.45, LH * 0.2, LW / 2, LH * 0.5, Math.max(LW, LH) * 0.8);
+  g.addColorStop(0, "rgba(255,255,255,0.2)");
+  g.addColorStop(1, "rgba(120,115,105,0.1)");
+  pctx.fillStyle = g;
+  pctx.fillRect(0, 0, LW, LH);
+  pctx.lineWidth = 0.35;
+  for (let i = 0, n = (LW * LH) / 260; i < n; i++) {
+    const x = rand(LW), y = rand(LH), a = rand(TAU), l = rand(3, 14);
+    pctx.strokeStyle = `rgba(110,105,95,${rand(0.03, 0.08)})`;
+    pctx.beginPath(); pctx.moveTo(x, y);
+    pctx.quadraticCurveTo(x + Math.cos(a + 0.6) * l * 0.5, y + Math.sin(a + 0.6) * l * 0.5, x + Math.cos(a) * l, y + Math.sin(a) * l);
+    pctx.stroke();
+  }
+  const img = pctx.getImageData(0, 0, paperCv.width, paperCv.height), d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const n = (Math.random() - 0.5) * 7;
+    d[i] += n; d[i + 1] += n; d[i + 2] += n;
+  }
+  pctx.putImageData(img, 0, 0);
+}
+
+// ---------- strokes ----------
+// Every branch, root and ground mark is one brush stroke: a centreline with a width profile,
+// an ink tone and a dryness. A child stroke starts when the parent's brush passes its fork,
+// so the painting grows the way it would be painted.
+
+const DL = 3.2;          // sample spacing along a stroke
+const SPEED = 2;         // samples painted per frame per active stroke
+const DROOP = [0, 0.0005, 0.0032, 0.01];
+
+function makeStroke({ x, y, a, w0, len, depth, tone, start,
+                      droop = DROOP[depth] ?? 0, taper = 0.6, tail = true, flare = 0, kink = 1, dry, hold = null }) {
+  const pts = [];
+  // keep the heading in [-π/2, 3π/2) so droop always turns the short way toward straight down
+  while (a < -Math.PI / 2) a += TAU;
+  while (a >= 1.5 * Math.PI) a -= TAU;
+  const seed = rand(1000);
+  let kinkIn = rand(25, 70), knot = 0;
+  const n = Math.max(4, Math.round(len / DL));
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    // width: pressed entry, thinning, knots at joints, lifted tail
+    let w = w0 * (1 - taper * t ** 1.1);
+    w *= 0.75 + 0.25 * Math.min(1, i / 4) + (i < 3 ? 0.18 : 0);
+    if (flare) w *= 1 + flare * Math.max(0, 1 - i / 14) ** 2;
+    w *= 1 + 0.22 * Math.max(0, 1 - knot / 4);
+    if (tail && t > 0.86) w *= Math.max(0.12, 1 - (t - 0.86) / 0.14) ** 0.8;
+    pts.push({ x, y, w });
+    // gravity bends the heading toward straight down; the hand adds a wobble
+    a += (Math.PI / 2 - a) * droop * DL * (0.4 + t) + (vnoise(seed, i * 0.06) - 0.5) * 0.05;
+    if (hold) a += Math.atan2(Math.sin(hold[0] - a), Math.cos(hold[0] - a)) * hold[1];   // keep the trunk upright, the ground level
+    if (x < 30) a += Math.sin(a) > 0 ? -0.03 : 0.03; else if (x > LW - 30) a += Math.sin(a) > 0 ? 0.03 : -0.03;
+    // angular joints, typical of cherry branches in sumi-e
+    knot++;
+    if ((kinkIn -= DL) <= 0) {
+      a += rand(-0.38, 0.38) * kink;
+      kinkIn = rand(30, 80); knot = 0;
+    }
+    x += Math.cos(a) * DL; y += Math.sin(a) * DL;
+    if (y > LH - 6 || y < 6 || x < 4 || x > LW - 4) break;
+  }
+  const B = clamp(Math.round(w0 * 0.9), 4, 40);
+  const bristles = Array.from({ length: B }, (_, j) => ({
+    u: -1 + (2 * (j + 0.5)) / B + rand(-0.3, 0.3) / B,
+    ink: rand(0.78, 1.02),
+    seed: rand(1000),
+  }));
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[Math.max(0, i - 1)], q = pts[Math.min(pts.length - 1, i + 1)];
+    const dx = q.x - p.x, dy = q.y - p.y, m = Math.hypot(dx, dy) || 1;
+    pts[i].nx = -dy / m; pts[i].ny = dx / m;
+  }
+  return { pts, bristles, depth, tone, start, dry: dry ?? (depth <= 1 ? 0.42 : rand(0.25, 0.65)), drawn: 0, sites: [] };
+}
+
+function buildScene() {
+  const strokes = [];
+  const add = opts => { const s = makeStroke(opts); strokes.push(s); grow(s); return s; };
+  const at = (s, i) => ({ p: s.pts[i], a: Math.atan2(s.pts[Math.min(i + 1, s.pts.length - 1)].y - s.pts[i].y,
+                                                     s.pts[Math.min(i + 1, s.pts.length - 1)].x - s.pts[i].x) });
+  // children along limbs, branches and twigs
+  const grow = s => {
+    if (s.depth < 1 || s.depth >= 3) return;
+    const n = s.pts.length;
+    const gap = s.depth === 1 ? [40, 75] : [22, 44];
+    let i = Math.round((rand(...gap) * K) / DL) + 4;
+    let side = Math.random() < 0.5 ? 1 : -1;
+    while (i < n - 4) {
+      const { p, a } = at(s, i);
+      const start = s.start + i / SPEED + rand(2, 10);
+      side = -side;
+      if (s.depth === 1 && Math.random() < 0.75) {
+        add({ x: p.x, y: p.y, a: a + side * rand(0.35, 0.9), w0: p.w * rand(0.45, 0.65),
+              len: rand(150, 290) * K, depth: 2, tone: rand(0.82, 0.96), start });
+      } else {
+        const light = Math.random() < 0.2;
+        add({ x: p.x, y: p.y, a: a + side * rand(0.4, 0.95), w0: clamp(p.w * rand(0.45, 0.6), 1.3, 3.8),
+              len: rand(45, 120) * K, depth: 3, tone: light ? rand(0.35, 0.5) : rand(0.62, 0.92), start });
+      }
+      i += Math.round((rand(...gap) * K) / DL);
+    }
+  };
+
+  // ground: a few pale, dry horizontal strokes
+  for (let k = 0; k < 6; k++) {
+    add({ x: rand(-40, LW * 0.45), y: GROUND + rand(-4, 30), a: rand(-0.025, 0.025), w0: rand(5, 13),
+          len: rand(0.3, 0.75) * LW, depth: 4, tone: rand(0.16, 0.34), start: rand(0, 40),
+          droop: 0, kink: 0.08, taper: 0.4, dry: rand(0.55, 0.95), hold: [0, 0.04] });
+  }
+
+  // trunk, with a flared base and a few surface roots
+  const tx = LW / 2 + rand(-40, 40) * K;
+  const tall = 1 + (1 - K) * 1.6;   // on tall, narrow screens lift the crown with a longer trunk
+  const trunk = add({ x: tx, y: GROUND + 8, a: -Math.PI / 2 + rand(-0.12, 0.12), w0: 52 * K, len: rand(270, 330) * K * tall,
+                      depth: 0, tone: 0.97, start: 20, taper: 0.4, tail: false, flare: 0.55, kink: 0.35,
+                      hold: [-Math.PI / 2 + rand(-0.12, 0.12), 0.02] });
+  for (const side of [-1, 1, pick([-1, 1])]) {
+    add({ x: tx + side * rand(8, 16) * K, y: GROUND + 2, a: Math.PI / 2 - side * rand(1.15, 1.4), w0: rand(10, 16) * K,
+          len: rand(30, 70) * K, depth: 4, tone: 0.9, start: 20, droop: 0, taper: 0.85, kink: 0.4 });
+  }
+
+  // main limbs fan out from the top of the trunk, plus one or two lower ones
+  const n = trunk.pts.length;
+  const fan = [-0.95, -0.4, 0.1, 0.55, 1.0].filter(() => Math.random() < 0.8);
+  if (fan.length < 3) fan.push(-0.7, 0.6);
+  for (const off of fan) {
+    const i = Math.round(n * rand(0.84, 0.98));
+    const { p } = at(trunk, i);
+    add({ x: p.x, y: p.y, a: -Math.PI / 2 + off + rand(-0.15, 0.15), w0: p.w * rand(0.5, 0.7),
+          len: rand(380, 520) * K, depth: 1, tone: rand(0.9, 0.97), start: trunk.start + i / SPEED });
+  }
+  for (const side of [-1, 1]) {
+    if (Math.random() < 0.3) continue;
+    const i = Math.round(n * rand(0.5, 0.72));
+    const { p } = at(trunk, i);
+    add({ x: p.x, y: p.y, a: -Math.PI / 2 + side * rand(1.0, 1.3), w0: p.w * rand(0.4, 0.55),
+          len: rand(300, 420) * K, depth: 1, tone: 0.93, start: trunk.start + i / SPEED });
+  }
+
+  // blossom sites: clouds along branches and twigs, and at limb tips
+  for (const s of strokes) {
+    const n = s.pts.length;
+    if (s.depth === 1) s.sites.push(n - 1);
+    if (s.depth === 2) for (let i = Math.round(n * 0.3); i < n; i += Math.round((rand(45, 90) * K) / DL)) s.sites.push(i);
+    if (s.depth === 3) {
+      for (let i = Math.round(n * 0.2); i < n - 2; i += Math.round((rand(20, 40) * K) / DL)) s.sites.push(i);
+      s.sites.push(n - 1);
+    }
+  }
+  return { strokes, tx };
+}
+
+// ---------- brush ----------
+
+const inkTone = d => `rgb(${PAPER_RGB.map((p, k) => Math.round(p + (INK_RGB[k] - p) * d)).join(",")})`;
+
+// Bristles are painted as opaque ink tones with a "darken" blend: overlapping chunks of the same
+// stroke don't double up (no seams), and a pale stroke crossing a dark one leaves the dark one intact.
+function paintChunk(s, i0, i1) {
+  const pts = s.pts, n = pts.length;
+  const mid = pts[(i0 + i1) >> 1];
+  const t = ((i0 + i1) / 2) / (n - 1);
+  const lw = Math.max(0.35, (mid.w / s.bristles.length) * 2.1);
+  const from = Math.max(0, i0 - 2);
+  ctx.save();
+  ctx.globalCompositeOperation = "darken";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (const b of s.bristles) {
+    // edge bristles run dry first; paper grain breaks a dry bristle into streaks ("flying white")
+    const ink = b.ink - s.dry * t ** 1.3 * (0.5 + Math.abs(b.u));
+    const grain = vnoise(mid.x * 0.33 + b.seed, mid.y * 0.33);
+    const d = clamp((ink - 0.22 + (grain - 0.5) * 0.55) * 2.3, 0, 1) * s.tone;
+    if (d < 0.04) continue;
+    ctx.strokeStyle = inkTone(d);
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    for (let i = from; i <= i1; i++) {
+      const p = pts[i];
+      const splay = (vnoise(b.seed, i * 0.08) - 0.5) * 0.25;
+      const o = (b.u * 0.92 + splay) * p.w * 0.5;
+      const x = p.x + p.nx * o, y = p.y + p.ny * o;
+      i === from ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ---------- blossoms ----------
+// Each blossom takes the ink already on the branch where it grows: the darker the brushwork under
+// its stalk, the more grey its pink wash carries and the darker its wet edge. The wash is laid in
+// thin layers that spread outward, so colour pools at the centre and the petals cover the branch.
+
+function inkAt(img, x, y, r = 3) {
+  let sum = 0, cnt = 0;
+  for (let oy = -r; oy <= r; oy++)
+    for (let ox = -r; ox <= r; ox++) {
+      const px = Math.round((x + ox) * S), py = Math.round((y + oy) * S);
+      if (px < 0 || py < 0 || px >= img.width || py >= img.height) continue;
+      const k = (py * img.width + px) * 4;
+      sum += (img.data[k + 3] / 255) * clamp((PAPER_RGB[0] - img.data[k]) / (PAPER_RGB[0] - INK_RGB[0]), 0, 1); cnt++;
+    }
+  return cnt ? sum / cnt : 0;
+}
+
+function blossomOutline(petals) {
+  const N = 60, pts = [], seed = rand(100);
+  for (let i = 0; i < N; i++) {
+    const th = (i / N) * TAU;
+    const k = (th * 5) / TAU, pi = Math.floor(k), phi = k - pi;
+    const lobe = Math.sin(Math.PI * phi) ** 0.5;
+    const notch = rand(0.08, 0.22) * Math.exp(-(((phi - 0.5) / 0.07) ** 2));
+    const wobble = 0.85 + 0.3 * vnoise(seed + Math.cos(th) * 1.6, Math.sin(th) * 1.6);
+    const r = (0.38 + 0.62 * lobe - notch) * petals[pi % 5] * wobble;
+    pts.push([Math.cos(th) * r, Math.sin(th) * r]);
+  }
+  return pts;
+}
+
+function makeFlowers(strokes, img, tEnd) {
+  const flowers = [];
+  for (const s of strokes)
+    for (const i of s.sites) {
+      const p = s.pts[i];
+      const local = inkAt(img, p.x, p.y);
+      const tip = i === s.pts.length - 1 && s.depth === 3;
+      const count = tip ? pick([1, 1, 2]) : pick([1, 1, 1, 2, 2, 2]);
+      const when = (s.start + i / SPEED) / tEnd;   // bloom follows the order the brush passed
+      for (let k = 0; k < count; k++) {
+        const bud = tip && k === 0 ? Math.random() < 0.6 : Math.random() < 0.06;
+        const R = (bud ? rand(4, 6) : rand(10, 17)) * K;
+        const cx = p.x + rand(-20, 20) * K, cy = p.y + rand(-12, 20) * K;
+        if (cy > GROUND - 6 || cy < 6 || cx < 6 || cx > LW - 6) continue;
+        const ink = clamp((0.35 + 0.9 * local) * rand(0.7, 1.3), 0.3, 1.2);
+        const m = clamp(0.2 + 0.25 * ink, 0, 0.5);
+        flowers.push({
+          ax: p.x, ay: p.y, x: cx, y: cy, R, bud, ink,
+          rim: ROSE.map((c, j) => Math.round(c + (INK_RGB[j] - c) * m)).join(","),
+          rot: rand(TAU), squash: rand(0.55, 1),
+          outline: blossomOutline(Array.from({ length: 5 }, () => rand(0.82, 1.08))),
+          start: Math.round(when * 150 + rand(0, 30)),
+          t: 0,
+        });
+      }
+    }
+  return flowers;
+}
+
+const STALK = 7, BLOOM = 38;
+
+function tf(f, px, py, scale) {
+  const c = Math.cos(f.rot), s = Math.sin(f.rot);
+  const x = px * scale, y = py * scale * f.squash;
+  return [f.x + x * c - y * s, f.y + x * s + y * c];
+}
+
+function paintFlower(f) {
+  const t = f.t++;
+  if (t <= STALK) {
+    // the stalk carries ink from the twig out to the blossom
+    const u0 = Math.max(0, t - 1) / STALK, u1 = t / STALK;
+    const mx = (f.ax + f.x) / 2 + (f.x - f.ax) * 0.15, my = (f.ay + f.y) / 2 - 2;
+    const at = u => {
+      const v = 1 - u;
+      return [v * v * f.ax + 2 * v * u * mx + u * u * f.x, v * v * f.ay + 2 * v * u * my + u * u * f.y];
+    };
+    ctx.strokeStyle = `rgba(${INK},${0.7 * Math.min(1, f.ink)})`;
+    ctx.lineWidth = f.bud ? 0.7 : 0.85;
+    ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(...at(u0)); ctx.lineTo(...at(u1)); ctx.stroke();
+    return false;
+  }
+  const g = t - STALK;
+  if (f.bud) {
+    if (g < 14) {
+      const sc = (g + 1) / 14;
+      ctx.fillStyle = `rgba(${BLUSH},0.22)`;
+      ctx.beginPath();
+      ctx.ellipse(f.x + rand(-0.3, 0.3), f.y + f.R * 0.3 * sc, f.R * 0.6 * sc, f.R * sc, rand(-0.2, 0.2), 0, TAU);
+      ctx.fill();
+      return false;
+    }
+    ctx.strokeStyle = `rgba(${f.rim},0.5)`;
+    ctx.lineWidth = 0.6;
+    ctx.beginPath(); ctx.ellipse(f.x, f.y + f.R * 0.3, f.R * 0.6, f.R, 0, 0, TAU); ctx.stroke();
+    ctx.fillStyle = `rgba(${INK},0.8)`;
+    ctx.beginPath(); ctx.ellipse(f.x, f.y - f.R * 0.45, f.R * 0.32, f.R * 0.38, 0, 0, TAU); ctx.fill();
+    return true;
+  }
+  if (g < BLOOM) {
+    // one layer per frame, each a little larger: pale pink over the branch, blush and ink pooling inside
+    const p = (g + 1) / BLOOM, sc = f.R * (1 - (1 - p) ** 3);
+    const ox = rand(-0.05, 0.05) * f.R, oy = rand(-0.05, 0.05) * f.R;
+    ctx.beginPath();
+    f.outline.forEach(([px, py], i) => {
+      const j = rand(0.93, 1.06);
+      const [x, y] = tf(f, px * j, py * j, sc);
+      i ? ctx.lineTo(x + ox, y + oy) : ctx.moveTo(x + ox, y + oy);
+    });
+    ctx.closePath();
+    ctx.fillStyle = `rgba(${PINK},0.17)`;
+    ctx.fill();
+    if (p < 0.5) { ctx.fillStyle = `rgba(${BLUSH},0.06)`; ctx.fill(); }
+    ctx.fillStyle = `rgba(${INK},${0.012 * f.ink * (1.5 - p)})`;
+    ctx.fill();
+    return false;
+  }
+  // drying: pigment gathers unevenly at the wet edge, then a few stamens are flicked in
+  ctx.lineCap = "round";
+  const o = f.outline, per = o.length / 5;
+  for (let pass = 0; pass < 3; pass++) {
+    ctx.strokeStyle = `rgba(${f.rim},${rand(0.1, 0.22)})`;
+    ctx.lineWidth = rand(0.5, 1.3) * K;
+    for (let k = 0; k < 5; k++) {
+      if (Math.random() < 0.35) continue;
+      const a = Math.round(rand(per * 0.3)), b = Math.round(per - rand(per * 0.3));
+      const sc = f.R * rand(0.95, 1.02);
+      ctx.beginPath();
+      for (let i = a; i <= b; i++) {
+        const [px, py] = o[(Math.round(k * per) + i) % o.length];
+        const [x, y] = tf(f, px, py, sc);
+        i === a ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+  }
+  const dots = (rand(2, 6)) | 0;
+  for (let k = 0; k < dots; k++) {
+    const a = rand(TAU), r = f.R * rand(0.1, 0.38);
+    const x = f.x + Math.cos(a) * r, y = f.y + Math.sin(a) * r * f.squash;
+    ctx.fillStyle = `rgba(${INK},${rand(0.5, 0.85)})`;
+    ctx.beginPath(); ctx.ellipse(x, y, rand(0.5, 1.1) * K, rand(0.4, 0.8) * K, rand(TAU), 0, TAU); ctx.fill();
+  }
+  return true;
+}
+
+// ---------- fallen petals ----------
+
+function makePetals(tx, flowers) {
+  const xs = flowers.map(f => f.x);
+  const spread = xs.length ? (Math.max(...xs) - Math.min(...xs)) / 2 : 300;
+  const petals = [];
+  for (let k = 0; k < 160; k++) {
+    const air = k < 26;
+    const x = tx + gauss() * spread * (air ? 1.1 : 0.8);
+    const y = air ? rand(GROUND - 260 * K, GROUND - 20) : GROUND + rand(-6, 34) + Math.abs(gauss()) * 10;
+    if (x < 6 || x > LW - 6) continue;
+    petals.push({ x, y, s: rand(2.4, 4.4) * K, rot: rand(TAU), squash: air ? rand(0.3, 0.9) : rand(0.35, 0.6) });
+  }
+  return petals.sort(() => Math.random() - 0.5);
+}
+
+function paintPetal(p) {
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(p.rot);
+  ctx.scale(1, p.squash);
+  ctx.beginPath();
+  ctx.moveTo(-p.s, 0);
+  ctx.bezierCurveTo(-p.s * 0.6, -p.s * 1.1, p.s * 0.7, -p.s * 1.0, p.s, -p.s * 0.25);
+  ctx.lineTo(p.s * 0.72, 0);
+  ctx.lineTo(p.s, p.s * 0.25);
+  ctx.bezierCurveTo(p.s * 0.7, p.s * 1.0, -p.s * 0.6, p.s * 1.1, -p.s, 0);
+  ctx.fillStyle = `rgba(${PINK},0.95)`;
+  ctx.fill();
+  ctx.fillStyle = `rgba(${BLUSH},0.25)`;
+  ctx.fill();
+  ctx.strokeStyle = `rgba(${ROSE.join(",")},0.35)`;
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ---------- timeline ----------
+// branches → blossoms → fallen petals
+
+let run = 0;
+const status = document.getElementById("status");
+
+function paint() {
+  const id = ++run;
+  if (!innerWidth || !innerHeight) return;   // hidden or zero-size frame: wait for a resize
+  layout();
+  paintPaper();
+  ctx.clearRect(0, 0, LW, LH);
+  const { strokes, tx } = buildScene();
+  const tEnd = Math.max(...strokes.map(s => s.start + s.pts.length / SPEED));
+  let frame = 0, flowers = null, allFlowers = null, petals = null, flowerFrame = 0;
+  status.textContent = `${strokes.length} brush strokes`;
+
+  (function tick() {
+    if (id !== run) return;
+    if (!flowers) {
+      let active = 0;
+      for (const s of strokes) {
+        if (frame < s.start || s.drawn >= s.pts.length) continue;
+        active++;
+        const i1 = Math.min(s.pts.length - 1, s.drawn + SPEED);
+        paintChunk(s, s.drawn, i1);
+        s.drawn = i1 + 1;
+      }
+      frame++;
+      if (!active && frame > tEnd) {
+        const img = ctx.getImageData(0, 0, inkCv.width, inkCv.height);
+        flowers = allFlowers = makeFlowers(strokes, img, tEnd);
+        status.textContent = `${strokes.length} brush strokes · ${flowers.length} blossoms`;
+      }
+    } else if (flowers.length) {
+      flowers = flowers.filter(f => flowerFrame < f.start || !paintFlower(f));
+      flowerFrame++;
+    } else if ((petals ||= makePetals(tx, allFlowers)).length) {
+      for (const p of petals.splice(0, 6)) paintPetal(p);
+    } else return;
+    requestAnimationFrame(tick);
+  })();
+}
+
+document.getElementById("again").onclick = paint;
+inkCv.onclick = paint;
+let lastW = innerWidth, lastH = innerHeight;
+addEventListener("resize", () => {
+  if (Math.abs(innerWidth - lastW) + Math.abs(innerHeight - lastH) < 60) return;
+  lastW = innerWidth; lastH = innerHeight;
+  paint();
+});
+paint();
+</script>
+</body>
+</html>
