@@ -1,0 +1,820 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meteor Light</title>
+<link rel="stylesheet" href="/nav.css">
+<style>
+  :root {
+    --night: #000;
+    --ink: #e6ecff;
+    --muted: #8590b4;
+    --line: rgba(150, 175, 255, 0.14);
+    /* the scene is always night, so the global nav goes dark with it */
+    --nav-bg: var(--night);
+    --nav-ink: var(--ink);
+    --nav-muted: var(--muted);
+    --nav-line: var(--line);
+    --nav-active: rgba(160, 185, 255, 0.12);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--night);
+    color: var(--ink);
+    font: 13px/1.4 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .stage { position: relative; flex: 1; min-height: 0; }
+  .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: none; }
+  .controls {
+    position: fixed;
+    left: 16px;
+    bottom: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    color: var(--muted);
+  }
+  button {
+    font: inherit;
+    color: var(--ink);
+    background: rgba(14, 16, 24, 0.75);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 6px 14px;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+  }
+  button:hover { border-color: rgba(170, 195, 255, 0.45); }
+  button:has(.play) { display: inline-flex; align-items: center; gap: 7px; padding-left: 12px; }
+  button .play { width: 10px; height: 10px; fill: currentColor; flex: none; }
+  button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  @media (max-width: 560px) { #status { display: none; } }
+</style>
+</head>
+<body>
+<nav class="gnav">
+  <a class="gnav-brand" href="/">BioSense - Nicole (11/4)</a>
+  <div class="gnav-tabs">
+    <a href="/organic-algorithms.html">Tree algorithms</a>
+    <a href="/sakura.html">Sakura</a>
+    <a href="/meteor-light.html" aria-current="page">Meteor light</a>
+    <a href="/fireworks.html">Fireworks</a>
+  </div>
+</nav>
+<div class="stage" id="stage">
+  <canvas id="sky" aria-label="A tree drawn in light whose leaves are sparkling stars that fall as meteors"></canvas>
+</div>
+<div class="controls">
+  <button id="again"><svg class="play" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2v7.6a.6.6 0 0 0 .9.5l6.2-3.8a.6.6 0 0 0 0-1L2.9.7a.6.6 0 0 0-.9.5z"/></svg>Replay growth</button>
+  <button id="shower"><svg class="play" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2v7.6a.6.6 0 0 0 .9.5l6.2-3.8a.6.6 0 0 0 0-1L2.9.7a.6.6 0 0 0-.9.5z"/></svg>Play leaf falling</button>
+  <span id="status">Hover &amp; click on the branches to see effects</span>
+</div>
+
+<script>
+// Logical space is 1000 units tall; its width follows the stage's aspect.
+const LH = 1000;
+let LW = 1600, K = 1, GROUND = 930, S = 1, DPR = 1;
+const TAU = Math.PI * 2;
+const REDUCE = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const MOTION = REDUCE ? 0.4 : 1;
+const rand = (a, b) => (b === undefined ? Math.random() * a : a + Math.random() * (b - a));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;
+// a standard normal sample (Box–Muller)
+const normal = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(TAU * Math.random());
+
+const vnoise = (() => {
+  const P = new Float32Array(1024);
+  for (let i = 0; i < 1024; i++) P[i] = Math.random();
+  const h = (x, y) => P[(((x * 73856093) ^ (y * 19349663)) >>> 0) & 1023];
+  const s = t => t * t * (3 - 2 * t);
+  return (x, y) => {
+    const xi = Math.floor(x), yi = Math.floor(y), u = s(x - xi), v = s(y - yi);
+    const a = h(xi, yi), b = h(xi + 1, yi), c = h(xi, yi + 1), d = h(xi + 1, yi + 1);
+    return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+  };
+})();
+
+// ---------- palette & sprites ----------
+
+// 0-2: the meteor's icy body (white → ice → violet); 3-8: spectral "fire", the colour a diamond throws.
+const TINTS = [
+  [236, 242, 255], [165, 210, 255], [150, 140, 255],
+  [255, 110, 135], [255, 185, 105], [250, 244, 140], [125, 255, 175], [105, 200, 255], [205, 130, 255],
+];
+const TSTR = TINTS.map(c => `rgb(${c})`);
+
+function makeDot(rgb) {
+  const c = document.createElement("canvas");
+  c.width = c.height = 32;
+  const g = c.getContext("2d"), r = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+  r.addColorStop(0, "rgba(255,255,255,1)");
+  r.addColorStop(0.16, `rgba(${rgb},0.9)`);
+  r.addColorStop(0.42, `rgba(${rgb},0.22)`);
+  r.addColorStop(1, `rgba(${rgb},0)`);
+  g.fillStyle = r;
+  g.fillRect(0, 0, 32, 32);
+  return c;
+}
+
+// A four-point diamond glint: halo, prismatic spikes (red, green, blue offset so tips fringe), hot core.
+function makeStar() {
+  const s = 192, m = s / 2, c = document.createElement("canvas");
+  c.width = c.height = s;
+  const g = c.getContext("2d");
+  g.globalCompositeOperation = "lighter";
+  const halo = g.createRadialGradient(m, m, 0, m, m, m);
+  halo.addColorStop(0, "rgba(215,228,255,0.6)");
+  halo.addColorStop(0.1, "rgba(150,180,255,0.22)");
+  halo.addColorStop(0.35, "rgba(110,120,255,0.05)");
+  halo.addColorStop(1, "rgba(90,100,255,0)");
+  g.fillStyle = halo;
+  g.fillRect(0, 0, s, s);
+  const spike = (ang, len, wid, rgb, a) => {
+    g.save();
+    g.translate(m, m);
+    g.rotate(ang);
+    const lg = g.createLinearGradient(-len, 0, len, 0);
+    lg.addColorStop(0, `rgba(${rgb},0)`);
+    lg.addColorStop(0.35, `rgba(${rgb},${a * 0.35})`);
+    lg.addColorStop(0.5, `rgba(${rgb},${a})`);
+    lg.addColorStop(0.65, `rgba(${rgb},${a * 0.35})`);
+    lg.addColorStop(1, `rgba(${rgb},0)`);
+    g.fillStyle = lg;
+    g.beginPath();
+    g.moveTo(-len, 0);
+    g.quadraticCurveTo(0, -wid, len, 0);
+    g.quadraticCurveTo(0, wid, -len, 0);
+    g.fill();
+    g.restore();
+  };
+  for (const [rgb, f, wf] of [["255,120,150", 1, 1.25], ["140,255,190", 0.9, 1], ["130,165,255", 0.8, 0.8]]) {
+    spike(0, m * 0.98 * f, 3 * wf, rgb, 0.95);
+    spike(Math.PI / 2, m * 0.98 * f, 3 * wf, rgb, 0.95);
+    spike(Math.PI / 4, m * 0.42 * f, 1.8 * wf, rgb, 0.5);
+    spike(-Math.PI / 4, m * 0.42 * f, 1.8 * wf, rgb, 0.5);
+  }
+  const core = g.createRadialGradient(m, m, 0, m, m, m * 0.13);
+  core.addColorStop(0, "rgba(255,255,255,1)");
+  core.addColorStop(0.5, "rgba(235,242,255,0.75)");
+  core.addColorStop(1, "rgba(200,220,255,0)");
+  g.fillStyle = core;
+  g.fillRect(0, 0, s, s);
+  return c;
+}
+
+const DOTS = TINTS.map(makeDot);
+const STAR = makeStar();
+
+// ---------- canvases ----------
+
+const stage = document.getElementById("stage");
+const cv = document.getElementById("sky");
+const ctx = cv.getContext("2d");
+const skyCv = document.createElement("canvas"), sctx = skyCv.getContext("2d");
+const treeCv = document.createElement("canvas"), tctx = treeCv.getContext("2d");
+
+function layout() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  const w = stage.clientWidth, h = stage.clientHeight;
+  LW = (LH * w) / h;
+  K = clamp(LW / 1400, 0.55, 1);
+  GROUND = LH * 0.93;
+  S = (h * DPR) / LH;
+  for (const c of [cv, skyCv, treeCv]) { c.width = Math.round(w * DPR); c.height = Math.round(h * DPR); }
+  for (const c of [ctx, sctx, tctx]) c.setTransform(S, 0, 0, S, 0, 0);
+}
+
+function paintSky() {
+  sctx.globalCompositeOperation = "source-over";
+  sctx.fillStyle = "#000";
+  sctx.fillRect(0, 0, LW, LH);
+}
+
+// ---------- the tree of light ----------
+
+const MAXD = 7;
+const GROW = 300;   // logical units per second
+const TRUNK = 285, LIMB = 175;   // trunk length, and the length the first limbs are scaled from
+const TOP = 110;                 // the tree is scaled so its crown reaches this far from the top
+let segs = [], tips = [], leaves = [], baseX = 800, treeEnd = 0;
+
+function ptAt(P, s) {
+  const n = P.length - 1, f = clamp(s, 0, 1) * n, i = Math.min(n - 1, Math.floor(f)), t = f - i;
+  return { x: P[i].x + (P[i + 1].x - P[i].x) * t, y: P[i].y + (P[i + 1].y - P[i].y) * t, i };
+}
+function normalAt(P, i) {
+  const n = P.length - 1, a = P[Math.max(0, i - 1)], b = P[Math.min(n, i + 1)];
+  const l = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  return { x: -(b.y - a.y) / l, y: (b.x - a.x) / l };
+}
+
+// Thick limbs are bundles of light fibres that twist loosely around each other.
+function buildFibers(seg) {
+  const F = clamp(Math.round(seg.w0 / (1.9 * K)), 1, 9);
+  seg.F = F;
+  seg.fibers = [];
+  if (F === 1) { seg.fibers.push(seg.pts); return; }
+  const P = seg.pts, n = P.length - 1;
+  for (let j = 0; j < F; j++) {
+    const base = (j + 0.5) / F - 0.5, ph = rand(TAU), fr = rand(0.25, 0.55);
+    const line = [];
+    for (let i = 0; i <= n; i++) {
+      const nm = normalAt(P, i), wi = seg.w0 + (seg.w1 - seg.w0) * (i / n);
+      const o = (base * 0.85 + Math.sin(i * fr + ph) * 0.13) * wi;
+      line.push({ x: P[i].x + nm.x * o, y: P[i].y + nm.y * o });
+    }
+    seg.fibers.push(line);
+  }
+}
+
+// Fine luminous dust clinging to each branch.
+function buildGrains(seg) {
+  const n = Math.round(seg.len * (0.1 + (seg.w0 / K) * 0.05));
+  seg.grains = [];
+  for (let k = 0; k < n; k++) {
+    const s = Math.random(), p = ptAt(seg.pts, s), nm = normalAt(seg.pts, p.i);
+    const w = seg.w0 + (seg.w1 - seg.w0) * s, o = gauss() * (w * 0.9 + 1.6 * K);
+    seg.grains.push({ s, x: p.x + nm.x * o, y: p.y + nm.y * o, z: rand(0.35, 1.0) * K, a: rand(0.1, 0.5) });
+  }
+}
+
+function branch(parent, attachIdx, x, y, ang, len, w, depth, t0) {
+  const n = Math.max(3, Math.round(len / 7)), step = len / n, seed = rand(1000);
+  const pts = [{ x, y }];
+  for (let i = 1; i <= n; i++) {
+    ang += (vnoise(seed + i * 0.4, depth * 7.3) - 0.5) * (depth === 0 ? 0.14 : 0.26);
+    ang += (-Math.PI / 2 - ang) * (depth === 0 ? 0.07 : 0.012) * clamp(w / (6 * K), 0.2, 1);   // thick limbs reach upward
+    ang = clamp(ang, -Math.PI - 0.45, 0.45);   // wide limbs may dip a little, never hang
+    if (y > GROUND - 90 && depth > 0) ang += (-Math.PI / 2 - ang) * 0.2;   // and stay off the ground
+    x += Math.cos(ang) * step;
+    y += Math.sin(ang) * step;
+    pts.push({ x, y });
+  }
+  const w1 = w * 0.7;
+  const seg = { parent, attachIdx, pts, w0: w, w1, depth, t0, dur: len / GROW, len, sway: rand(-0.4, 0.4), M: null };
+  buildFibers(seg);
+  buildGrains(seg);
+  segs.push(seg);
+  const tEnd = t0 + seg.dur;
+  treeEnd = Math.max(treeEnd, tEnd);
+  if (depth >= MAXD || w1 < 0.45 * K) { tips.push(seg); return; }
+
+  const nk = depth < 1 ? 2 : Math.random() < 0.35 ? 3 : 2;
+  const spread = (depth === 0 ? 0.55 : 0.6) + gauss() * 0.08;
+  for (let k = 0; k < nk; k++) {
+    const f = k / (nk - 1) - 0.5;
+    const a = ang + f * 2 * spread * rand(0.7, 1.1) + gauss() * 0.1;
+    // the trunk is long on its own; the first limbs start from a crown-sized length
+    const base = depth === 0 ? LIMB * K : len;
+    branch(seg, pts.length - 1, x, y, a, base * rand(0.72, 0.84), w1 * (nk === 3 ? 0.8 : rand(0.8, 0.92)), depth + 1, tEnd);
+  }
+  if (depth >= 1 && depth < MAXD - 1 && Math.random() < 0.35) {
+    const idx = Math.round(n * rand(0.35, 0.7)), p = pts[idx], q = pts[idx - 1];
+    const a = Math.atan2(p.y - q.y, p.x - q.x) + (Math.random() < 0.5 ? -1 : 1) * rand(0.6, 1.0);
+    branch(seg, idx, p.x, p.y, a, len * 0.55, w * 0.5, depth + 2, t0 + (seg.dur * idx) / n);
+  }
+}
+
+// Each leaf is a fixed star just off its twig: it doesn't move, it only sparkles.
+// `lum` is how lit it is; every pulse of light that reaches its branch raises it.
+function makeLeaf(seg, dir) {
+  const p = seg.pts[seg.pts.length - 1], r = rand(4, 22) * K;
+  return {
+    seg, dir, sx: p.x + Math.cos(dir) * r, sy: p.y + Math.sin(dir) * r,
+    size: rand(0.7, 1.2), lum: 0,
+    tw: rand(TAU), twf: rand(1.2, 3.5) * MOTION,
+    born: seg.t0 + seg.dur + rand(0.05, 0.6), state: "wait", alpha: 0, glint: 0,
+    showerAt: 0, timer: 0, x: 0, y: 0, vx: 0, vy: 0, hx: [], hy: [],
+  };
+}
+
+function buildTree() {
+  segs = []; tips = []; leaves = []; treeEnd = 0;
+  baseX = LW / 2 + rand(-30, 30) * K;
+  branch(null, 0, baseX, GROUND + 2, -Math.PI / 2 + rand(-0.05, 0.05), TRUNK * K, 16 * K, 0, 0);
+  for (const seg of tips) {
+    const P = seg.pts, a = Math.atan2(P[P.length - 1].y - P[P.length - 2].y, P[P.length - 1].x - P[P.length - 2].x);
+    const count = Math.random() < 0.5 ? 1 : 2;
+    for (let k = 0; k < count; k++) leaves.push(makeLeaf(seg, a + gauss() * 0.9));
+  }
+  leaves.sort(() => Math.random() - 0.5);
+  leaves.length = Math.min(leaves.length, 380);
+  scaleToFit();
+  // A pulse lands on a twig cluster: a tip and the tips that share its parent branch.
+  for (const seg of segs) seg.leaves = [];
+  for (const l of leaves) (l.seg.parent || l.seg).leaves.push(l);
+}
+
+// Scale the whole tree evenly about the foot of its trunk, keeping its proportions, so its
+// highest star sits TOP units below the top of the stage; never so far that the crown runs off
+// either side. Branch widths, dust and stars scale with it.
+function scaleToFit() {
+  let top = Infinity, left = Infinity, right = -Infinity;
+  const see = (x, y) => { top = Math.min(top, y); left = Math.min(left, x); right = Math.max(right, x); };
+  for (const seg of segs) for (const p of seg.pts) see(p.x, p.y);
+  for (const l of leaves) see(l.sx, l.sy);
+  const margin = 12;
+  const k = Math.min(
+    (GROUND - TOP) / (GROUND - top),
+    left < baseX ? (baseX - margin) / (baseX - left) : Infinity,
+    right > baseX ? (LW - margin - baseX) / (right - baseX) : Infinity,
+  );
+  const moved = new Set();   // single-fibre branches share their point list with seg.pts
+  const place = p => {
+    if (moved.has(p)) return;
+    moved.add(p);
+    p.x = baseX + (p.x - baseX) * k;
+    p.y = GROUND + (p.y - GROUND) * k;
+  };
+  for (const seg of segs) {
+    seg.pts.forEach(place);
+    for (const f of seg.fibers) f.forEach(place);
+    for (const g of seg.grains) { place(g); g.z *= k; }
+    seg.w0 *= k; seg.w1 *= k; seg.len *= k;
+  }
+  for (const l of leaves) {
+    l.sx = baseX + (l.sx - baseX) * k;
+    l.sy = GROUND + (l.sy - GROUND) * k;
+    l.size *= k;
+  }
+}
+
+// ---------- shaking ----------
+// A click shakes the tree from the ground up. Every segment sways about the point where it grows
+// out of its parent, in a damped oscillation; each level starts a beat after the one below and
+// swings a little more and a little faster, and every segment carries its children with it, so
+// the shake travels from the trunk out through each level of branches to the stars at the tips.
+// seg.M is the segment's current 2D transform (null when the tree is still).
+
+const SHAKE_DELAY = 0.07, SHAKE_DECAY = 0.55;   // seconds per level; how quickly the sway dies down
+// Stars shaken loose fall as the shake dies down, each at its own moment: fall times follow a
+// normal distribution centred near the end of the visible sway.
+const FALL_MEAN = 1.5, FALL_SD = 0.3, FALL_MIN = 0.7, FALL_MAX = 2.6;   // seconds after the click
+const fallDelay = () => clamp(FALL_MEAN + FALL_SD * normal(), FALL_MIN, FALL_MAX);
+let shake = null;   // { t0, dir }
+
+const mulM = (m, n) => [
+  m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1],
+  m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3],
+  m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5],
+];
+const rotAbout = (x, y, a) => {
+  const c = Math.cos(a), s = Math.sin(a);
+  return [c, s, -s, c, x - c * x + s * y, y - s * x - c * y];
+};
+
+// Returns true while the tree is moving.
+function updateShake() {
+  if (!shake) return false;
+  const age = T - shake.t0;
+  if (age > MAXD * SHAKE_DELAY + SHAKE_DECAY * 6) {
+    shake = null;
+    for (const seg of segs) seg.M = null;
+    return false;
+  }
+  for (const seg of segs) {   // parents are always built before their children
+    const tau = age - seg.depth * SHAKE_DELAY;
+    let a = 0;
+    if (tau > 0) {
+      const amp = (0.008 + 0.004 * seg.depth) * shake.dir * MOTION;
+      const w = TAU * (1.5 + 0.35 * seg.depth);
+      a = amp * Math.sin(w * tau + (seg.sway || 0)) * Math.exp(-tau / SHAKE_DECAY) * Math.min(1, tau / 0.06);
+    }
+    const own = rotAbout(seg.pts[0].x, seg.pts[0].y, a);
+    seg.M = seg.parent && seg.parent.M ? mulM(seg.parent.M, own) : own;
+  }
+  return true;
+}
+
+function leafPos(l, t, out) {
+  const m = l.seg.M;
+  if (!m) { out.x = l.sx; out.y = l.sy; return out; }
+  out.x = m[0] * l.sx + m[2] * l.sy + m[4];
+  out.y = m[1] * l.sx + m[3] * l.sy + m[5];
+  return out;
+}
+
+const GLOW = [
+  { k: 4, add: 8, c: "rgba(60,90,255,0.03)" },
+  { k: 1.6, add: 2.5, c: "rgba(120,160,255,0.065)" },
+];
+
+function trace(c, P, p) {
+  const n = P.length - 1, f = p * n, k = Math.floor(f);
+  c.beginPath();
+  c.moveTo(P[0].x, P[0].y);
+  for (let i = 1; i <= k; i++) c.lineTo(P[i].x, P[i].y);
+  if (k < n) {
+    const t = f - k, a = P[k], b = P[k + 1];
+    c.lineTo(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
+  }
+}
+
+function drawTree(T, final) {
+  tctx.setTransform(1, 0, 0, 1, 0, 0);
+  tctx.clearRect(0, 0, treeCv.width, treeCv.height);
+  tctx.setTransform(S, 0, 0, S, 0, 0);
+  tctx.globalCompositeOperation = "lighter";
+  tctx.lineCap = "round";
+  tctx.lineJoin = "round";
+  for (const seg of segs) seg.p = clamp((T - seg.t0) / seg.dur, 0, 1);
+
+  if (final) {   // a pool of light where the trunk meets the ground
+    tctx.save();
+    tctx.translate(baseX, GROUND);
+    tctx.scale(1, 0.22);
+    const rg = tctx.createRadialGradient(0, 0, 0, 0, 0, 260 * K);
+    rg.addColorStop(0, "rgba(140,170,255,0.3)");
+    rg.addColorStop(0.4, "rgba(90,110,255,0.08)");
+    rg.addColorStop(1, "rgba(60,80,255,0)");
+    tctx.fillStyle = rg;
+    tctx.fillRect(-260 * K, -260 * K, 520 * K, 520 * K);
+    tctx.restore();
+  }
+  // while the tree is shaking, each segment is drawn through its own sway transform
+  const place = seg => {
+    const m = seg.M;
+    if (m) tctx.setTransform(S * m[0], S * m[1], S * m[2], S * m[3], S * m[4], S * m[5]);
+    else tctx.setTransform(S, 0, 0, S, 0, 0);
+  };
+  for (const pass of GLOW) {
+    tctx.strokeStyle = pass.c;
+    for (const seg of segs) {
+      if (seg.p <= 0) continue;
+      place(seg);
+      tctx.lineWidth = ((seg.w0 + seg.w1) / 2) * pass.k + pass.add * K;
+      trace(tctx, seg.pts, seg.p);
+      tctx.stroke();
+    }
+  }
+  for (const [color, wide] of [["rgba(170,205,255,0.24)", true], ["rgba(242,247,255,0.62)", false]]) {
+    tctx.strokeStyle = color;
+    for (const seg of segs) {
+      if (seg.p <= 0) continue;
+      place(seg);
+      const w = (seg.w0 + seg.w1) / 2;
+      tctx.lineWidth = seg.F === 1
+        ? (wide ? w * 0.9 + 0.5 * K : Math.max(0.3, w * 0.35))
+        : (wide ? 1.3 * K : 0.45 * K);
+      for (const f of seg.fibers) { trace(tctx, f, seg.p); tctx.stroke(); }
+    }
+  }
+  tctx.fillStyle = "rgb(200,220,255)";
+  for (const seg of segs) {
+    if (seg.p <= 0) continue;
+    place(seg);
+    for (const g of seg.grains) {
+      if (g.s > seg.p) continue;
+      tctx.globalAlpha = g.a;
+      tctx.fillRect(g.x - g.z / 2, g.y - g.z / 2, g.z, g.z);
+    }
+  }
+  tctx.setTransform(S, 0, 0, S, 0, 0);
+  tctx.globalAlpha = 1;
+}
+
+// ---------- grains: the granular dust meteors shed ----------
+
+const GCAP = 12000;
+const gx = new Float32Array(GCAP), gy = new Float32Array(GCAP), gvx = new Float32Array(GCAP), gvy = new Float32Array(GCAP);
+const gl = new Float32Array(GCAP), gm = new Float32Array(GCAP), gs = new Float32Array(GCAP), ga = new Float32Array(GCAP);
+const gt = new Uint8Array(GCAP);
+let gHead = 0;
+
+function grain(x, y, vx, vy, life, size, tint, a = 1) {
+  const i = gHead;
+  gHead = (gHead + 1) % GCAP;
+  gx[i] = x; gy[i] = y; gvx[i] = vx; gvy[i] = vy;
+  gl[i] = gm[i] = life; gs[i] = size; gt[i] = tint; ga[i] = a;
+}
+const fire = () => 3 + ((Math.random() * 6) | 0);
+const body = f => (f < 0.3 ? 0 : f < 0.65 ? 1 : 2);
+
+function stepGrains(dt) {
+  const grav = 22 * K * dt, drag = Math.exp(-1.2 * dt);
+  for (let i = 0; i < GCAP; i++) {
+    if (gl[i] <= 0) continue;
+    gl[i] -= dt;
+    gvx[i] *= drag;
+    gvy[i] = gvy[i] * drag + grav;
+    gx[i] += gvx[i] * dt;
+    gy[i] += gvy[i] * dt;
+    if (gy[i] > GROUND) { gy[i] = GROUND; gvy[i] *= -0.3; gvx[i] *= 0.5; }
+  }
+}
+
+function drawGrains() {
+  for (let k = 0; k < TINTS.length; k++) {
+    ctx.fillStyle = TSTR[k];
+    for (let i = 0; i < GCAP; i++) {
+      if (gl[i] <= 0 || gt[i] !== k) continue;
+      const f = gl[i] / gm[i];
+      ctx.globalAlpha = ga[i] * f * f * (0.5 + 0.5 * Math.random());   // flicker: each grain glitters
+      const s = gs[i];
+      ctx.fillRect(gx[i] - s / 2, gy[i] - s / 2, s, s);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ---------- pulses: light running up the branches ----------
+
+let pulses = [], flashes = [], waves = [];
+const WAVE_R = 110, WAVE_SPEED = 320;   // how far a landed pulse's light spreads, and how fast
+
+function pathTo(seg) {
+  if (seg.path) return seg.path;
+  const chain = [];
+  for (let s = seg; s; s = s.parent) chain.unshift(s);
+  const pts = [];
+  chain.forEach((s, i) => {
+    const end = i < chain.length - 1 ? chain[i + 1].attachIdx : s.pts.length - 1;
+    for (let j = 0; j <= end; j++) pts.push(s.pts[j]);
+  });
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+  return (seg.path = { pts, cum, len: cum[cum.length - 1] });
+}
+function along(P, d) {
+  let lo = 0, hi = P.cum.length - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (P.cum[m] <= d) lo = m; else hi = m; }
+  const a = P.pts[lo], b = P.pts[hi], t = clamp((d - P.cum[lo]) / (P.cum[hi] - P.cum[lo] || 1), 0, 1);
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+}
+function spawnPulse(seg) {
+  pulses.push({ seg, path: pathTo(seg), d: 0, v: rand(420, 620) * K * MOTION });
+}
+
+// ---------- meteors ----------
+
+const P = { x: 0, y: 0 }, Q = { x: 0, y: 0 };
+const ptr = { x: -1e9, y: -1e9 };
+
+// A star that comes loose starts from rest and drops straight down: no toss up, no sideways push.
+function detach(l) {
+  if (!l || l.state !== "live") return;
+  leafPos(l, T, P);
+  l.state = "fall";
+  l.x = P.x; l.y = P.y;
+  l.vx = 0;
+  l.vy = 0;
+  l.hx = [P.x]; l.hy = [P.y];
+  l.glint = 1;
+  l.showerAt = 0;
+}
+
+function drawLive(l, dt) {
+  if (l.showerAt && T >= l.showerAt) return detach(l);
+  l.alpha = Math.min(1, l.alpha + dt * 1.6);
+  l.glint *= Math.exp(-2.5 * dt);
+  leafPos(l, T, P);
+  const hx = P.x, hy = P.y;
+  const dp = Math.hypot(hx - ptr.x, hy - ptr.y), R = 85 * K;
+  if (dp < R) l.glint = Math.max(l.glint, (1 - dp / R) * 0.9);   // the cursor makes nearby gems flare
+
+  // brightness climbs with every pulse that has reached this star's branch
+  const lum = l.lum, a = l.alpha * (0.3 + 0.7 * lum);
+  const tw = 0.5 + 0.5 * Math.sin(T * l.twf + l.tw), sparkle = tw ** 6;
+  const sz = (9 + 12 * lum + (6 + 14 * lum) * sparkle + 26 * l.glint) * K * l.size;
+  ctx.globalAlpha = Math.min(1, a * (0.65 + 0.35 * tw) + l.glint * 0.5);
+  ctx.drawImage(STAR, hx - sz / 2, hy - sz / 2, sz, sz);
+  // every star lights a small radius around itself, which widens and brightens as it is lit
+  const hs = (16 + 34 * lum + 14 * l.glint) * K * l.size;
+  ctx.globalAlpha = l.alpha * (0.1 + 0.35 * lum + 0.2 * l.glint);
+  ctx.drawImage(DOTS[1], hx - hs / 2, hy - hs / 2, hs, hs);
+  // diamond fire: brief spectral sparks right at the star, they don't drift
+  if ((sparkle > 0.55 || l.glint > 0.3) && Math.random() < 0.06 + 0.1 * lum)
+    grain(hx + gauss() * 4 * K, hy + gauss() * 4 * K, 0, 0, rand(0.12, 0.3), rand(0.9, 1.7) * K, fire(), Math.min(1, a + 0.3));
+}
+
+function drawFalling(l, dt) {
+  l.vy += 140 * K * dt * MOTION;
+  const drag = Math.exp(-0.35 * dt);
+  l.vy *= drag;
+  l.x += l.vx * dt * MOTION;
+  l.y += l.vy * dt * MOTION;
+  l.hx.unshift(l.x); l.hy.unshift(l.y);
+  if (l.hx.length > 24) { l.hx.pop(); l.hy.pop(); }
+  l.glint *= Math.exp(-1.2 * dt);
+
+  const n = l.hx.length;
+  for (let i = n - 1; i >= 1; i--) {
+    const f = i / (n - 1), j = f * 4 * K, s = (1 - f) ** 0.7 * 7 * K * l.size + 0.6 * K;
+    ctx.globalAlpha = (1 - f) ** 1.2 * 0.9;
+    ctx.drawImage(DOTS[body(f)], l.hx[i] + (Math.random() - 0.5) * j - s / 2, l.hy[i] + (Math.random() - 0.5) * j - s / 2, s, s);
+  }
+  const tw = 0.5 + 0.5 * Math.sin(T * l.twf * 2 + l.tw);
+  const sz = (14 + 10 * tw ** 4 + 16 * l.glint) * K * l.size;
+  ctx.globalAlpha = 1;
+  ctx.drawImage(STAR, l.x - sz / 2, l.y - sz / 2, sz, sz);
+
+  // shed dust along the last stretch of flight
+  const px = n > 1 ? l.hx[1] : l.x, py = n > 1 ? l.hy[1] : l.y;
+  for (let k = 0; k < 3; k++) {
+    const t = Math.random();
+    grain(l.x + (px - l.x) * t + gauss() * 2 * K, l.y + (py - l.y) * t + gauss() * 2 * K,
+      -l.vx * 0.06 + gauss() * 14 * K, -l.vy * 0.06 + gauss() * 14 * K,
+      rand(0.5, 1.8), rand(0.5, 1.3) * K, (Math.random() * 3) | 0, 0.9);
+  }
+  if (Math.random() < 0.3) grain(l.x + gauss() * 4 * K, l.y + gauss() * 4 * K, 0, 0, rand(0.15, 0.3), rand(1, 1.8) * K, fire());
+
+  if (l.y >= GROUND) {
+    for (let k = 0; k < 22; k++)
+      grain(l.x, GROUND - 0.5, gauss() * 70 * K, -rand(10, 90) * K, rand(0.8, 2.4), rand(0.5, 1.3) * K,
+        Math.random() < 0.2 ? fire() : (Math.random() * 3) | 0, 1);
+    flashes.push({ x: l.x, y: GROUND, t: 0 });
+    l.state = "gone";
+    l.timer = rand(2.5, 7);
+  } else if (l.x < -60 || l.x > LW + 60) {
+    l.state = "gone";
+    l.timer = rand(2.5, 7);
+  }
+}
+
+// ---------- loop ----------
+
+let T = 0, last = 0, frozen = false, run = 0, pulseAcc = 0, wasShaking = false;
+// `fresh` grows a new tree (on load and resize); without it the current tree replays its growth.
+function start(fresh = true) {
+  if (!stage.clientWidth || !stage.clientHeight) return;
+  run++;
+  if (fresh || !segs.length) {
+    grownAt = sizeKey();
+    layout();
+    buildTree();
+    paintSky();
+  } else {
+    for (const l of leaves) Object.assign(l, { state: "wait", alpha: 0, glint: 0, lum: 0, showerAt: 0 });
+  }
+  gl.fill(0);
+  pulses = []; flashes = []; waves = [];
+  shake = null; wasShaking = false;
+  for (const seg of segs) seg.M = null;
+  T = 0; frozen = false;
+  last = performance.now();
+  const id = run;
+  requestAnimationFrame(now => frame(now, id));
+}
+
+function frame(now, id) {
+  if (id !== run) return;
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  T += dt;
+
+  const shaking = updateShake();
+  if (!frozen) {
+    const done = T > treeEnd + 0.05;
+    drawTree(done ? Infinity : T, done);
+    if (done) frozen = true;
+  } else if (shaking || wasShaking) {
+    drawTree(Infinity, true);   // redraw while it moves, and once more when it comes to rest
+  }
+  wasShaking = shaking;
+
+  ctx.globalCompositeOperation = "source-over";
+  ctx.globalAlpha = 1;
+  ctx.drawImage(skyCv, 0, 0, LW, LH);
+  ctx.globalCompositeOperation = "lighter";
+  ctx.drawImage(treeCv, 0, 0, LW, LH);
+
+  // bright growing tips while the tree draws itself
+  if (!frozen) {
+    for (const seg of segs) {
+      if (seg.p <= 0 || seg.p >= 1) continue;
+      const p = ptAt(seg.pts, seg.p), s = seg.w0 * 2.2 + 7 * K;
+      ctx.globalAlpha = 0.9;
+      ctx.drawImage(DOTS[0], p.x - s / 2, p.y - s / 2, s, s);
+    }
+  }
+
+  // light pulses run up toward leaves, and regrow fallen ones
+  if (frozen) {
+    pulseAcc += dt * 1.6 * MOTION;
+    while (pulseAcc > 1) {
+      pulseAcc--;
+      const l = leaves[(Math.random() * leaves.length) | 0];
+      if (l && l.state === "live") spawnPulse(l.seg);
+    }
+  }
+  pulses = pulses.filter(p => {
+    p.d += p.v * dt;
+    if (p.d >= p.path.len) {
+      // arriving light regrows fallen stars on this branch, then spreads out
+      // and leaves every star within WAVE_R brighter (most at the centre)
+      for (const l of (p.seg.parent || p.seg).leaves)
+        if (l.state === "pending") { l.state = "live"; l.alpha = 0; l.lum = 0; }
+      const end = p.path.pts[p.path.pts.length - 1];
+      waves.push({ x: end.x, y: end.y, r: 0 });
+      return false;
+    }
+    for (let k = 5; k >= 0; k--) {
+      const q = along(p.path, Math.max(0, p.d - k * 7 * K)), s = (7 - k) * 1.3 * K + 2 * K;
+      ctx.globalAlpha = (1 - k / 6) * 0.8;
+      ctx.drawImage(DOTS[k ? 1 : 0], q.x - s / 2, q.y - s / 2, s, s);
+    }
+    return true;
+  });
+
+  waves = waves.filter(w => {
+    const R = WAVE_R * K, r0 = w.r;
+    w.r += WAVE_SPEED * K * MOTION * dt;
+    for (const l of leaves) {
+      if (l.state !== "live" && l.state !== "wait") continue;
+      const d = Math.hypot(l.sx - w.x, l.sy - w.y);
+      if (d < r0 || d >= w.r || d >= R) continue;   // light each star once, as the wave front passes it
+      const k = (1 - d / R) ** 0.7;
+      l.lum += (1 - l.lum) * 0.2 * k;
+      l.glint = Math.max(l.glint, k);
+    }
+    const f = Math.min(1, w.r / R);   // a faint bloom shows the area being lit
+    const s = w.r * 2;
+    ctx.globalAlpha = (1 - f) ** 1.5 * 0.35;
+    ctx.drawImage(DOTS[2], w.x - s / 2, w.y - s / 2, s, s);
+    return w.r < R;
+  });
+
+  if (frozen && !REDUCE && Math.random() < dt * 0.6) detach(leaves[(Math.random() * leaves.length) | 0]);
+
+  for (const l of leaves) {
+    switch (l.state) {
+      case "wait":
+        if (T >= l.born) { l.state = "live"; l.alpha = 0; l.glint = 1; }
+        break;
+      case "live": drawLive(l, dt); break;
+      case "fall": drawFalling(l, dt); break;
+      case "gone":
+        if ((l.timer -= dt) <= 0) { l.state = "pending"; spawnPulse(l.seg); }
+        break;
+    }
+  }
+
+  flashes = flashes.filter(f => {
+    f.t += dt;
+    if (f.t > 0.7) return false;
+    const s = (24 + 90 * f.t) * K;
+    ctx.save();
+    ctx.translate(f.x, f.y);
+    ctx.scale(1, 0.3);
+    ctx.globalAlpha = (1 - f.t / 0.7) ** 2 * 0.7;
+    ctx.drawImage(DOTS[1], -s / 2, -s / 2, s, s);
+    ctx.restore();
+    return true;
+  });
+
+  stepGrains(dt);
+  drawGrains();
+
+  requestAnimationFrame(now => frame(now, id));
+}
+
+// ---------- interaction ----------
+
+function toLogical(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: ((e.clientX - r.left) / r.width) * LW, y: ((e.clientY - r.top) / r.height) * LH };
+}
+cv.addEventListener("pointermove", e => Object.assign(ptr, toLogical(e)));
+cv.addEventListener("pointerleave", () => { ptr.x = ptr.y = -1e9; });
+cv.addEventListener("pointerdown", e => {
+  const p = toLogical(e), R = 130 * K;
+  // shake the tree from the ground, swaying away from the side that was clicked
+  shake = { t0: T, dir: p.x < baseX ? 1 : -1 };
+  for (let k = 0; k < 16; k++) grain(p.x, p.y, gauss() * 60 * K, gauss() * 60 * K, rand(0.3, 0.8), rand(0.6, 1.4) * K, Math.random() < 0.4 ? fire() : 0);
+  for (const l of leaves) {
+    if (l.state !== "live") continue;
+    leafPos(l, T, P);
+    const dx = P.x - p.x, dy = P.y - p.y, d = Math.hypot(dx, dy);
+    if (d < R && Math.random() < 0.75) {
+      l.showerAt = T + fallDelay();
+      l.glint = 1;
+    }
+  }
+});
+
+document.getElementById("again").addEventListener("click", () => start(false));
+document.getElementById("shower").addEventListener("click", () => {
+  for (const l of leaves) if (l.state === "live" && Math.random() < 0.4) l.showerAt = T + rand(0, 1.8);
+});
+
+// Regrow when the stage changes size (its first callback, at the size we just grew at, is skipped).
+let resizeTimer, grownAt = "";
+const sizeKey = () => `${stage.clientWidth}x${stage.clientHeight}`;
+const resizer = new ResizeObserver(() => {
+  if (sizeKey() === grownAt) return;
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(start, run ? 200 : 0);
+});
+resizer.observe(stage);
+start();
+</script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+/* Global nav shared by every page. Pages can theme it through the --nav-* variables. */
+.gnav {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 24px;
+  padding: 8px 16px;
+  background: var(--nav-bg, #eeede9);
+  color: var(--nav-ink, #161514);
+  border-bottom: 1px solid var(--nav-line, rgba(0, 0, 0, 0.08));
+  font: 13px/1.4 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+}
+.gnav-brand {
+  margin-right: auto;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  color: inherit;
+  text-decoration: none;
+}
+.gnav-brand:hover { text-decoration: underline; text-underline-offset: 3px; }
+.gnav-brand:focus-visible { outline: 2px solid var(--nav-ink, #161514); outline-offset: 2px; border-radius: 4px; }
+.gnav-tabs { display: flex; gap: 2px; }
+.gnav-tabs a {
+  color: var(--nav-muted, #7d7a74);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.gnav-tabs a:hover { color: var(--nav-ink, #161514); }
+.gnav-tabs a[aria-current="page"] {
+  color: var(--nav-ink, #161514);
+  background: var(--nav-active, rgba(0, 0, 0, 0.06));
+}
+.gnav-tabs a:focus-visible { outline: 2px solid var(--nav-ink, #161514); outline-offset: 1px; }

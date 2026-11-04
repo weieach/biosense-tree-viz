@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Organic Growth Algorithms</title>
+<link rel="stylesheet" href="/nav.css">
 <style>
   :root {
     --bg: #f4f1ea;
@@ -12,6 +13,12 @@
     --ink: #2b2a26;
     --muted: #8a857a;
     --accent: #3f7d4e;
+    /* the global nav follows this page's theme, including dark mode */
+    --nav-bg: var(--bg);
+    --nav-ink: var(--ink);
+    --nav-muted: var(--muted);
+    --nav-line: var(--line);
+    --nav-active: color-mix(in srgb, var(--ink) 9%, transparent);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -39,10 +46,11 @@
     color: var(--ink);
     font: 15px/1.5 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
   }
+  .gnav { position: sticky; top: 0; }
   header {
     max-width: 1320px;
     margin: 0 auto;
-    padding: 40px 16px 8px;
+    padding: 28px 16px 8px;
     display: flex;
     flex-wrap: wrap;
     align-items: end;
@@ -101,10 +109,19 @@
 </style>
 </head>
 <body>
+<nav class="gnav">
+  <a class="gnav-brand" href="/">BioSense - Nicole (11/4)</a>
+  <div class="gnav-tabs">
+    <a href="/organic-algorithms.html" aria-current="page">Tree algorithms</a>
+    <a href="/sakura.html">Sakura</a>
+    <a href="/meteor-light.html">Meteor light</a>
+    <a href="/fireworks.html">Fireworks</a>
+  </div>
+</nav>
 <header>
   <div>
     <h1>Organic growth algorithms</h1>
-    <p>Twelve ways to grow tree-like forms, each running live in its own canvas. Every run is random, so press regenerate to grow a new one.</p>
+    <p>I built this page to visualize different algorithms for visualizing trees; looks like #1 and #4 can be quite promising.</p>
   </div>
   <button id="all">Regenerate all</button>
 </header>
@@ -458,125 +475,7 @@ function* dla({ ctx, col }) {
   }
 }
 
-// ---------- 06 · Differential growth ----------
-
-function* differentialGrowth({ ctx, col }) {
-  let pts = [];
-  for (let i = 0; i < 40; i++) {
-    const a = (i / 40) * TAU;
-    pts.push({ x: 200 + Math.cos(a) * 18, y: 200 + Math.sin(a) * 18 });
-  }
-  const R = 11, maxEdge = 6;
-  for (let frame = 0; frame < 900 && pts.length < 2200; frame++) {
-    for (let sub = 0; sub < 2; sub++) {
-      const hash = new Map();
-      pts.forEach((p, i) => {
-        const key = Math.floor(p.x / R) * 1000 + Math.floor(p.y / R);
-        (hash.get(key) || hash.set(key, []).get(key)).push(i);
-      });
-      const n = pts.length;
-      const next = pts.map((p, i) => {
-        const a = pts[(i - 1 + n) % n], b = pts[(i + 1) % n];
-        let fx = ((a.x + b.x) / 2 - p.x) * 0.35, fy = ((a.y + b.y) / 2 - p.y) * 0.35;
-        const cx = Math.floor(p.x / R), cy = Math.floor(p.y / R);
-        let sx = 0, sy = 0;
-        for (let ox = -1; ox <= 1; ox++)
-          for (let oy = -1; oy <= 1; oy++) {
-            const bucket = hash.get((cx + ox) * 1000 + cy + oy);
-            if (!bucket) continue;
-            for (const j of bucket) {
-              if (j === i) continue;
-              const dx = p.x - pts[j].x, dy = p.y - pts[j].y, d = Math.hypot(dx, dy);
-              if (d > 0 && d < R) { const f = (R - d) / R; sx += (dx / d) * f; sy += (dy / d) * f; }
-            }
-          }
-        fx += sx * 0.55; fy += sy * 0.55;
-        const m = Math.hypot(fx, fy);
-        if (m > 1.2) { fx *= 1.2 / m; fy *= 1.2 / m; }
-        let x = p.x + fx, y = p.y + fy;
-        const r = Math.hypot(x - 200, y - 200);
-        if (r > 185) { x = 200 + ((x - 200) / r) * 185; y = 200 + ((y - 200) / r) * 185; }
-        return { x, y };
-      });
-      pts = [];
-      for (let i = 0; i < n; i++) {
-        const p = next[i], q = next[(i + 1) % n];
-        pts.push(p);
-        if (Math.hypot(q.x - p.x, q.y - p.y) > maxEdge || Math.random() < 0.002)
-          pts.push({ x: (p.x + q.x) / 2 + rand(-0.3, 0.3), y: (p.y + q.y) / 2 + rand(-0.3, 0.3) });
-      }
-    }
-    ctx.clearRect(0, 0, W, W);
-    ctx.beginPath();
-    pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
-    ctx.closePath();
-    ctx.globalAlpha = 0.16; ctx.fillStyle = col.accent; ctx.fill(); ctx.globalAlpha = 1;
-    ctx.lineJoin = "round"; ctx.lineWidth = 1.3; ctx.strokeStyle = col.ink; ctx.stroke();
-    yield;
-  }
-}
-
-// ---------- 07 · Leaf venation (open venation, growing blade) ----------
-
-function* venation({ ctx, col }) {
-  const bx = 200, by = 362, len = 330;
-  const halfW = t => (t <= 0 || t >= 1 ? 0 : 128 * Math.sin(Math.PI * t ** 0.78) * (1 - 0.25 * t));
-  const inside = (x, y) => { const t = (by - y) / len; return Math.abs(x - bx) < halfW(t) - 3; };
-  const S = [], nodes = [{ x: bx, y: by, parent: -1 }];
-  const map = s => p => ({ x: bx + (p.x - bx) * s, y: by + (p.y - by) * s });
-  const draw = (s, final) => {
-    const m = map(s);
-    ctx.clearRect(0, 0, W, W);
-    ctx.beginPath();
-    for (let i = 0; i <= 60; i++) { const t = i / 60, p = m({ x: bx + halfW(t), y: by - t * len }); i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); }
-    for (let i = 60; i >= 0; i--) { const t = i / 60, p = m({ x: bx - halfW(t), y: by - t * len }); ctx.lineTo(p.x, p.y); }
-    ctx.globalAlpha = 0.16; ctx.fillStyle = col.accent; ctx.fill(); ctx.globalAlpha = 1;
-    ctx.strokeStyle = col.accent; ctx.lineWidth = 1.2; ctx.stroke();
-    ctx.strokeStyle = col.ink; ctx.lineWidth = 3 * Math.sqrt(s) + 0.5; ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx, by + 34 * s); ctx.stroke();
-    if (!final) dots(ctx, S.map(m), col.accent, 1.6, 0.9);
-    drawTree(ctx, nodes, col.ink, { k: 0.38, min: 0.35, max: 5, map: m });
-  };
-  let idle = 0;
-  for (let it = 0; it < 520; it++) {
-    const s = Math.min(1, 0.18 + it * 0.0045);   // the blade expands while veins grow
-    const bs = 13 / s, bv = 9 / s, dk = 5 / s, D = 3.2 / s;
-    // dart-throwing: new auxin sources appear where there is room
-    let added = 0;
-    for (let k = 0; k < 40; k++) {
-      const x = rand(bx - 130, bx + 130), y = rand(by - len, by);
-      if (!inside(x, y)) continue;
-      if (S.some(q => (q.x - x) ** 2 + (q.y - y) ** 2 < bs * bs)) continue;
-      if (nodes.some(q => (q.x - x) ** 2 + (q.y - y) ** 2 < bv * bv)) continue;
-      S.push({ x, y }); added++;
-    }
-    const pull = new Map(), dead = new Set();
-    S.forEach((a, si) => {
-      let best = -1, bd = Infinity;
-      for (let i = 0; i < nodes.length; i++) {
-        const d = (a.x - nodes[i].x) ** 2 + (a.y - nodes[i].y) ** 2;
-        if (d < bd) { bd = d; best = i; }
-      }
-      if (bd < dk * dk) { dead.add(si); return; }
-      const l = Math.sqrt(bd), v = pull.get(best) || { x: 0, y: 0 };
-      v.x += (a.x - nodes[best].x) / l; v.y += (a.y - nodes[best].y) / l;
-      pull.set(best, v);
-    });
-    for (const [i, v] of pull) {
-      const l = Math.hypot(v.x, v.y);
-      if (l < 1e-3) continue;
-      nodes.push({ x: nodes[i].x + (v.x / l) * D, y: nodes[i].y + (v.y / l) * D, parent: i });
-    }
-    for (let i = S.length - 1; i >= 0; i--) if (dead.has(i)) S.splice(i, 1);
-    idle = !added && !S.length ? idle + 1 : 0;
-    draw(s, false);
-    yield;
-    if (s >= 1 && idle > 6) break;
-  }
-  draw(1, true);
-}
-
-// ---------- 08 · Flow-field branches ----------
+// ---------- 06 · Flow-field branches ----------
 
 function* flowField({ ctx, col }) {
   const ox = rand(100), oy = rand(100);
@@ -612,183 +511,7 @@ function* flowField({ ctx, col }) {
   dots(ctx, leaves, col.accent, 2.2, 0.75);
 }
 
-// ---------- 09 · Dielectric breakdown (Laplacian growth) ----------
-
-function* dielectric({ ctx, col }) {
-  const N = 100, CS = W / N, eta = 1.0, omega = 1.85;
-  const phi = new Float32Array(N * N), pat = new Int32Array(N * N).fill(-1);
-  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) phi[y * N + x] = 1 - y / (N - 1);
-  const nodes = [{ x: 50, y: N - 1, parent: -1 }];
-  pat[(N - 1) * N + 50] = 0; phi[(N - 1) * N + 50] = 0;
-  const relax = sweeps => {
-    for (let s = 0; s < sweeps; s++)
-      for (let y = 1; y < N; y++)
-        for (let x = 0; x < N; x++) {
-          const i = y * N + x;
-          if (pat[i] >= 0) { phi[i] = 0; continue; }
-          const l = x > 0 ? phi[i - 1] : phi[i + 1], r = x < N - 1 ? phi[i + 1] : phi[i - 1];
-          const u = phi[i - N], d = y < N - 1 ? phi[i + N] : phi[i - N];
-          phi[i] += omega * ((l + r + u + d) / 4 - phi[i]);
-        }
-  };
-  relax(120);
-  const off = document.createElement("canvas");
-  off.width = off.height = N;
-  const octx = off.getContext("2d"), img = octx.createImageData(N, N);
-  const [ar, ag, ab] = col.accentRGB;
-  const toPx = n => ({ x: n.x * CS + CS / 2, y: n.y * CS + CS / 2 });
-  let done = false;
-  while (!done && nodes.length < 1300) {
-    for (let g = 0; g < 3 && !done; g++) {
-      const cand = [], w = [];
-      let total = 0;
-      for (let y = 1; y < N; y++)
-        for (let x = 1; x < N - 1; x++) {
-          const i = y * N + x;
-          if (pat[i] >= 0) continue;
-          let par = -1;
-          for (let oy = -1; oy <= 1 && par < 0; oy++)
-            for (let ox = -1; ox <= 1; ox++) {
-              if (y + oy >= N) continue;
-              const o = pat[(y + oy) * N + x + ox];
-              if (o >= 0) { par = o; break; }
-            }
-          if (par < 0) continue;
-          const p = Math.max(0, phi[i]) ** eta;
-          cand.push([x, y, par]); w.push(p); total += p;
-        }
-      let r = Math.random() * total, k = 0;
-      while (k < w.length - 1 && (r -= w[k]) > 0) k++;
-      const [x, y, par] = cand[k];
-      nodes.push({ x, y, parent: par });
-      pat[y * N + x] = nodes.length - 1;
-      if (y <= 8) done = true;
-      relax(6);
-    }
-    for (let i = 0; i < N * N; i++) {
-      img.data[i * 4] = ar; img.data[i * 4 + 1] = ag; img.data[i * 4 + 2] = ab;
-      img.data[i * 4 + 3] = Math.max(0, phi[i]) ** 1.6 * 80;
-    }
-    octx.putImageData(img, 0, 0);
-    ctx.clearRect(0, 0, W, W);
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(off, 0, 0, W, W);
-    drawTree(ctx, nodes, col.ink, { k: 0.75, max: 8, map: toPx });
-    yield;
-  }
-}
-
-// ---------- 10 · Root network (cost-balanced spanning tree) ----------
-
-function* rootNetwork({ ctx, col }) {
-  const soil = 78, root = { x: 200, y: soil };
-  const P = [];
-  while (P.length < 380) {
-    const x = rand(10, 390), y = rand(soil + 6, 392);
-    const r = Math.hypot(x - root.x, y - root.y);
-    if (r < 320 && Math.random() < (1 - r / 330) ** 0.6) P.push({ x, y });
-  }
-  const c = 0.35;   // 0 → minimum spanning tree, 1 → shortest-path star
-  const n = P.length, used = new Uint8Array(n), best = new Float32Array(n), from = new Int32Array(n);
-  const nodes = [{ ...root, parent: -1, L: 0 }];
-  for (let i = 0; i < n; i++) { best[i] = Math.hypot(P[i].x - root.x, P[i].y - root.y); from[i] = 0; }
-  const draw = () => {
-    ctx.clearRect(0, 0, W, W);
-    ctx.strokeStyle = col.muted; ctx.lineWidth = 1; ctx.setLineDash([3, 4]);
-    ctx.beginPath(); ctx.moveTo(0, soil); ctx.lineTo(W, soil); ctx.stroke(); ctx.setLineDash([]);
-    // sprout
-    ctx.strokeStyle = col.ink; ctx.lineWidth = 3; ctx.lineCap = "round";
-    ctx.beginPath(); ctx.moveTo(200, soil); ctx.quadraticCurveTo(203, soil - 22, 200, soil - 40); ctx.stroke();
-    ctx.fillStyle = col.accent;
-    for (const s of [-1, 1]) {
-      ctx.beginPath(); ctx.ellipse(200 + s * 14, soil - 38, 14, 6, s * -0.5, 0, TAU); ctx.fill();
-    }
-    dots(ctx, P.filter((_, i) => !used[i]), col.muted, 1.4, 0.6);
-    drawTree(ctx, nodes, col.ink, { k: 0.75, max: 10 });
-  };
-  for (let added = 0; added < n; ) {
-    for (let s = 0; s < 3 && added < n; s++, added++) {
-      let v = -1;
-      for (let i = 0; i < n; i++) if (!used[i] && (v < 0 || best[i] < best[v])) v = i;
-      used[v] = 1;
-      const p = nodes[from[v]];
-      nodes.push({ ...P[v], parent: from[v], L: p.L + Math.hypot(P[v].x - p.x, P[v].y - p.y) });
-      const id = nodes.length - 1, L = nodes[id].L;
-      for (let i = 0; i < n; i++) {
-        if (used[i]) continue;
-        const cost = Math.hypot(P[i].x - P[v].x, P[i].y - P[v].y) + c * L;
-        if (cost < best[i]) { best[i] = cost; from[i] = id; }
-      }
-    }
-    draw();
-    yield;
-  }
-}
-
-// ---------- 11 · Physarum (slime-mould agents) ----------
-
-function* physarum({ ctx, col }) {
-  const N = 200, CS = W / N;
-  let trail = new Float32Array(N * N), tmp = new Float32Array(N * N);
-  const food = Array.from({ length: 11 }, () => {
-    const a = rand(TAU), r = rand(45, 88);
-    return { x: 100 + Math.cos(a) * r, y: 100 + Math.sin(a) * r };
-  });
-  const agents = Array.from({ length: 4000 }, () => {
-    const a = rand(TAU), r = 95 * Math.sqrt(Math.random());
-    return { x: 100 + Math.cos(a) * r, y: 100 + Math.sin(a) * r, h: rand(TAU) };
-  });
-  const SA = 0.785, SD = 9, RA = 0.785, STEP = 1;
-  const sense = (x, y) => {
-    const i = Math.floor(x), j = Math.floor(y);
-    return i < 0 || j < 0 || i >= N || j >= N ? -1 : trail[j * N + i];
-  };
-  const off = document.createElement("canvas");
-  off.width = off.height = N;
-  const octx = off.getContext("2d"), img = octx.createImageData(N, N);
-  const [ir, ig, ib] = col.inkRGB;
-  for (let frame = 0; frame < 480; frame++) {
-    for (const f of food)
-      for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++)
-        trail[(Math.floor(f.y) + oy) * N + Math.floor(f.x) + ox] += 6;
-    for (const g of agents) {
-      const F = sense(g.x + Math.cos(g.h) * SD, g.y + Math.sin(g.h) * SD);
-      const Lf = sense(g.x + Math.cos(g.h - SA) * SD, g.y + Math.sin(g.h - SA) * SD);
-      const Rt = sense(g.x + Math.cos(g.h + SA) * SD, g.y + Math.sin(g.h + SA) * SD);
-      if (F >= Lf && F >= Rt) { /* keep heading */ }
-      else if (Lf > Rt) g.h -= RA; else if (Rt > Lf) g.h += RA; else g.h += Math.random() < 0.5 ? RA : -RA;
-      const x = g.x + Math.cos(g.h) * STEP, y = g.y + Math.sin(g.h) * STEP;
-      if (x < 0 || y < 0 || x >= N || y >= N) { g.h = rand(TAU); continue; }
-      g.x = x; g.y = y; g.h += rand(-0.1, 0.1);
-      trail[Math.floor(y) * N + Math.floor(x)] += 0.3;
-    }
-    for (let y = 0; y < N; y++)
-      for (let x = 0; x < N; x++) {
-        let s = 0;
-        for (let oy = -1; oy <= 1; oy++)
-          for (let ox = -1; ox <= 1; ox++) {
-            const yy = y + oy, xx = x + ox;
-            if (yy >= 0 && xx >= 0 && yy < N && xx < N) s += trail[yy * N + xx];
-          }
-        tmp[y * N + x] = (s / 9) * 0.9;
-      }
-    [trail, tmp] = [tmp, trail];
-    let mean = 0;
-    for (let i = 0; i < N * N; i++) mean += trail[i];
-    mean = mean / (N * N) || 1;
-    for (let i = 0; i < N * N; i++) {
-      img.data[i * 4] = ir; img.data[i * 4 + 1] = ig; img.data[i * 4 + 2] = ib;
-      img.data[i * 4 + 3] = 255 * Math.min(1, trail[i] / (mean * 12)) ** 1.3;
-    }
-    octx.putImageData(img, 0, 0);
-    ctx.clearRect(0, 0, W, W);
-    ctx.drawImage(off, 0, 0, W, W);
-    dots(ctx, food.map(f => ({ x: f.x * CS, y: f.y * CS })), col.accent, 4.5, 0.9);
-    yield;
-  }
-}
-
-// ---------- 12 · Data-driven hybrid (radial hierarchy + organic links) ----------
+// ---------- 07 · Data-driven hybrid (radial hierarchy + organic links) ----------
 
 function* hybrid({ ctx, col }) {
   const root = { depth: 0, children: [] };
@@ -876,18 +599,8 @@ const DEMOS = [
     desc: "Buds compete for light under a shadow-propagation grid, and growth resource flows to the best-lit ones (Palubicki 2009)." },
   { title: "Diffusion-limited aggregation", tag: "growth", run: dla,
     desc: "Random-walking particles drift down and stick to the cluster, giving coral- or root-like fractals." },
-  { title: "Differential growth", tag: "physics", run: differentialGrowth,
-    desc: "A closed curve whose nodes repel and cohere, and whose edges keep splitting. It buckles into folds." },
-  { title: "Leaf venation", tag: "growth", run: venation,
-    desc: "Auxin sources appear in an expanding blade and veins grow toward them, giving hierarchical open venation." },
   { title: "Flow-field branches", tag: "physics", run: flowField,
     desc: "Branch agents steer along a Perlin-noise field around their own heading, and taper as they go." },
-  { title: "Dielectric breakdown", tag: "physics", run: dielectric,
-    desc: "Laplacian growth: sites attach with probability φ^η from the solved potential field (shaded)." },
-  { title: "Root network", tag: "network", run: rootNetwork,
-    desc: "A spanning tree over sampled soil points with cost = edge length + 0.35 × path length to the root." },
-  { title: "Physarum", tag: "network", run: physarum,
-    desc: "4,000 slime-mould agents follow and deposit a diffusing trail, linking food sources into a network." },
   { title: "Data-driven hybrid", tag: "data viz", run: hybrid,
     desc: "A radial hierarchy layout, with links drawn as jittered Bézier curves tapered by Murray's law from leaf values." },
 ];
@@ -913,16 +626,11 @@ const cards = DEMOS.map((demo, i) => {
   return card;
 });
 
-function hexRGB(hex) {
-  const h = hex.trim().replace("#", "");
-  return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
-}
 function colors() {
   const cs = getComputedStyle(document.documentElement);
   const get = n => cs.getPropertyValue(n).trim();
   return {
     ink: get("--ink"), accent: get("--accent"), muted: get("--muted"), line: get("--line"),
-    inkRGB: hexRGB(get("--ink")), accentRGB: hexRGB(get("--accent")),
   };
 }
 

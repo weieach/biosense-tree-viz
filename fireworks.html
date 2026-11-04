@@ -1,0 +1,642 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Firework Tree</title>
+<link rel="stylesheet" href="/nav.css">
+<style>
+  :root {
+    --night: #000;
+    --ink: #ece9f4;
+    --muted: #8a879f;
+    --line: rgba(255, 255, 255, 0.08);
+    /* the scene is always night, so the global nav goes dark with it */
+    --nav-bg: var(--night);
+    --nav-ink: var(--ink);
+    --nav-muted: var(--muted);
+    --nav-line: var(--line);
+    --nav-active: rgba(255, 255, 255, 0.09);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--night);
+    color: var(--ink);
+    font: 13px/1.4 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .stage { position: relative; flex: 1; min-height: 0; cursor: pointer; }
+  .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .controls {
+    position: fixed;
+    left: 16px;
+    bottom: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: center;
+    color: var(--muted);
+  }
+  button {
+    font: inherit;
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+    padding: 6px 14px;
+    cursor: pointer;
+  }
+  button:hover { border-color: rgba(255, 255, 255, 0.32); }
+  button:has(.play) { display: inline-flex; align-items: center; gap: 7px; padding-left: 12px; }
+  button .play { width: 10px; height: 10px; fill: currentColor; flex: none; }
+</style>
+</head>
+<body>
+<nav class="gnav">
+  <a class="gnav-brand" href="/">BioSense - Nicole (11/4)</a>
+  <div class="gnav-tabs">
+    <a href="/organic-algorithms.html">Tree algorithms</a>
+    <a href="/sakura.html">Sakura</a>
+    <a href="/meteor-light.html">Meteor light</a>
+    <a href="/fireworks.html" aria-current="page">Fireworks</a>
+  </div>
+</nav>
+<div class="stage" id="stage"><canvas id="cv"></canvas></div>
+<div class="controls">
+  <button id="again"><svg class="play" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2v7.6a.6.6 0 0 0 .9.5l6.2-3.8a.6.6 0 0 0 0-1L2.9.7a.6.6 0 0 0-.9.5z"/></svg>Replay growth</button>
+  <span>Click the background to launch a firework</span>
+</div>
+
+<script>
+// A tree grown by a 2D L-system and brushed with the same dry-brush strokes as its crowns, which
+// are fireworks painted in a splashed-paint style. Its outer levels fade away toward the tips.
+// The tree takes the colour of the latest firework sent, and crowns light the wood near them.
+// Each crown is launched as a point of light pushed up inside the trunk and branches
+// (never wider than the wood it travels through) to a branch tip, where it bursts into dry-brush
+// streaks, paint drips, comma flicks, fine sparks and splatter. A crown glitters and colours the
+// resin around it for 5 seconds, then fades out while others bloom on other tips.
+
+const TAU = Math.PI * 2;
+const rand = (a, b) => (b === undefined ? Math.random() * a : a + Math.random() * (b - a));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const pick = arr => arr[(Math.random() * arr.length) | 0];
+const easeOut = t => 1 - (1 - t) ** 3;
+const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+
+// colours from the reference: cobalt, violet, lavender, pink, coral, vermilion, gold, cream
+const PALETTES = [
+  ["#4a66e8", "#8b5ad8", "#b9a0e8"], ["#f08aa0", "#ff6a5a", "#f2c14e"], ["#f2c14e", "#ffd86b", "#ff7a3c"],
+  ["#8b5ad8", "#b9a0e8", "#f08aa0"], ["#4a66e8", "#f2c14e", "#f08aa0"], ["#ff5a3a", "#f2c14e", "#b9a0e8"],
+].map(p => p.map(rgb));
+const CREAM = rgb("#f4ead8"), WHITE = [255, 255, 255], GOLD = rgb("#f2c14e");
+const RESIN = [44, 41, 38];          // the wood's own faint tone before any firework is sent
+const TINT_LEVEL = 0.32;             // how strongly the latest firework's colour shows in the wood
+const INNER = [255, 226, 186];       // colour of the light pushed through the wood
+
+// ---------- canvas ----------
+
+const stage = document.getElementById("stage");
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+let W = 0, H = 0, dpr = 1;
+
+function resize() {
+  W = stage.clientWidth; H = stage.clientHeight;
+  if (!W || !H) return false;
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  sizeLayers();
+  return true;
+}
+
+// ---------- L-system tree ----------
+// A stochastic bracketed L-system read by a 2D turtle:
+//   F draw a segment   + - turn   [ ] push/pop a branch   A a growing tip
+// Each F is drawn as two short steps with a slight bend toward the light and a hand wobble.
+// Lengths and widths shrink with branch depth; every A left at the end is a tip for a crown.
+
+const RULES = [
+  [0.4, "[+FA][-FA]"],
+  [0.3, "[+FA][FA][-FA]"],
+  [0.3, "F[+FA][-FA]"],
+];
+
+function lsystem(axiom, iterations) {
+  let s = axiom;
+  for (let i = 0; i < iterations; i++) {
+    let out = "";
+    for (const ch of s) {
+      if (ch !== "A") { out += ch; continue; }
+      let r = Math.random();
+      out += RULES.find(([p]) => (r -= p) <= 0)?.[1] ?? RULES[0][1];
+    }
+    s = out;
+  }
+  return s;
+}
+
+function interpret(str) {
+  const segs = [], tips = [], stack = [];
+  let t = { x: 0, y: 0, a: -Math.PI / 2, d: 0, seg: -1, dist: 0 };
+  const turn = 0.44;
+  for (const ch of str) {
+    if (ch === "F") {
+      const len = 0.8 ** t.d * rand(0.85, 1.15), w = 0.22 * 0.64 ** t.d;
+      for (let k = 0; k < 2; k++) {
+        t.a += (-Math.PI / 2 - t.a) * (t.d ? 0.05 : 0.15) + rand(-0.07, 0.07);
+        const x = t.x + Math.cos(t.a) * len / 2, y = t.y + Math.sin(t.a) * len / 2;
+        segs.push({ ax: t.x, ay: t.y, bx: x, by: y, len: len / 2, w, d: t.d, parent: t.seg, dist: t.dist });
+        t = { ...t, x, y, seg: segs.length - 1, dist: t.dist + len / 2 };
+      }
+    } else if (ch === "+") t.a += turn + rand(-0.14, 0.14);
+    else if (ch === "-") t.a -= turn + rand(-0.14, 0.14);
+    else if (ch === "[") { stack.push(t); t = { ...t, d: t.d + 1 }; }
+    else if (ch === "]") t = stack.pop();
+    else if (ch === "A" && t.seg >= 0) tips.push({ seg: t.seg, x: t.x, y: t.y, a: t.a });
+  }
+  return { segs, tips };
+}
+
+let tree = null;   // { segs, tips, height, depth, grown }
+
+// Every level of the tree is drawn. The first four levels (the trunk, depth 0, through depth 3)
+// are at full strength; from the fifth level on, each level is fainter, down to 10% at the
+// outermost twigs, where the crowns land.
+const SOLID_DEPTH = 3, TIP_OPACITY = 0.1;
+
+// Fit the tree to the stage: centred, standing on the bottom, leaving room above for crowns.
+function buildTree() {
+  const { segs, tips } = interpret(lsystem("FFA", 6));
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity;
+  for (const s of segs) { x0 = Math.min(x0, s.ax, s.bx); x1 = Math.max(x1, s.ax, s.bx); y0 = Math.min(y0, s.ay, s.by); }
+  // on tall, narrow screens the canopy may run past the sides so the tree can stand taller
+  const k = Math.min(Math.max(W * 0.7, H * 0.5) / (x1 - x0), (H * 0.68) / -y0);
+  const ox = W / 2 - ((x0 + x1) / 2) * k, oy = H * 0.97;
+  const maxD = Math.max(...segs.map(s => s.d));
+  for (const s of segs) {
+    s.ax = ox + s.ax * k; s.ay = oy + s.ay * k; s.bx = ox + s.bx * k; s.by = oy + s.by * k;
+    s.len *= k; s.dist *= k; s.w = Math.max(0.9, s.w * k);
+    s.alpha = s.d <= SOLID_DEPTH || maxD <= SOLID_DEPTH
+      ? 1 : 1 - (1 - TIP_OPACITY) * (s.d - SOLID_DEPTH) / (maxD - SOLID_DEPTH);
+  }
+  for (const tp of tips) { tp.x = ox + tp.x * k; tp.y = oy + tp.y * k; }
+  shapeBranches(segs, maxD);
+  tree = { segs, tips, height: -y0 * k, grown: false, depth: Math.max(...segs.map(s => s.dist + s.len)),
+           drawn: new Uint16Array(segs.length) };
+  clearTexture();
+}
+
+// Each run of segments at one depth is one branch. For every segment, work out where it sits
+// along its branch (0 at the fork, 1 at the end): the outermost branches taper from full width to
+// a point, and every branch's brush runs dry toward its end. The wood's brushwork is finer than
+// the fireworks': many thin bristles broken into short flecks, each with its own fixed strength
+// (0 where the brush skipped). The pattern is fixed here, once, so the texture never flickers.
+function shapeBranches(segs, maxD) {
+  const root = segs.map((s, i) => {
+    let r = i;
+    while (segs[r].parent >= 0 && segs[segs[r].parent].d === s.d) r = segs[r].parent;
+    return r;
+  });
+  const end = new Map();
+  segs.forEach((s, i) => end.set(root[i], Math.max(end.get(root[i]) || 0, s.dist + s.len)));
+  segs.forEach((s, i) => {
+    const start = segs[root[i]].dist, span = end.get(root[i]) - start || 1;
+    const u = d => clamp((d - start) / span, 0, 1);
+    s.u0 = u(s.dist); s.u1 = u(s.dist + s.len);
+    s.w0 = s.w1 = s.w;
+    if (s.d === maxD) { s.w0 = s.w * Math.max(0.06, 1 - s.u0); s.w1 = s.w * Math.max(0.06, 1 - s.u1); }
+    const nb = clamp(Math.round(s.w / 0.8), 3, 16), pieces = Math.max(3, Math.ceil(s.len / 1.8));
+    s.pieces = pieces;
+    s.bristles = Array.from({ length: nb }, (_, j) => {
+      const a = rand(0.55, 1);
+      return {
+        off: -1 + (2 * j) / (nb - 1) + rand(-0.12, 0.12),
+        fleck: Float32Array.from({ length: pieces }, (_, p) => {
+          const uu = s.u0 + (s.u1 - s.u0) * ((p + 0.5) / pieces);
+          if (Math.random() < 0.06 + 0.4 * uu * uu) return 0;   // the brush runs dry toward the end
+          return a * rand(0.55, 1);
+        }),
+      };
+    });
+  });
+}
+
+const widthAt = (s, t) => s.w0 + (s.w1 - s.w0) * t;
+
+// The path from the root to a segment, as segment indices.
+function chainTo(seg) {
+  const chain = [];
+  for (let i = seg; i >= 0; i = tree.segs[i].parent) chain.push(i);
+  return chain.reverse();
+}
+
+// ---------- painting the tree ----------
+// The tree is brushed with the same dry-brush strokes as the fireworks: parallel bristles that
+// break up toward each branch's end. The brushwork is painted once, in white, into a texture
+// canvas (piece by piece as the tree grows). Each frame a colour layer is laid down (the latest
+// firework's tint plus the light of nearby crowns) and cut to the shape of that brushwork.
+
+const texCv = document.createElement("canvas"), tex = texCv.getContext("2d");
+const layerCv = document.createElement("canvas"), layer = layerCv.getContext("2d");
+
+function sizeLayers() {
+  for (const [c, g] of [[texCv, tex], [layerCv, layer]]) {
+    c.width = cv.width; c.height = cv.height;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+}
+
+function clearTexture() {
+  tex.clearRect(0, 0, W, H);
+  if (tree) tree.drawn.fill(0);
+}
+
+// Paint any brushwork the growth has reached since last time.
+function paintTexture(grow) {
+  tex.lineCap = "butt";   // short flecks with butt ends read as grain rather than beads
+  tree.segs.forEach((s, i) => {
+    const g = grow ? clamp((grow - s.dist) / s.len, 0, 1) : 1;
+    const upto = g >= 1 ? s.pieces : Math.floor(g * s.pieces);
+    if (upto <= tree.drawn[i]) return;
+    const dx = s.bx - s.ax, dy = s.by - s.ay, m = Math.hypot(dx, dy) || 1, nx = -dy / m, ny = dx / m;
+    for (let p = tree.drawn[i]; p < upto; p++) {
+      const t0 = p / s.pieces, t1 = (p + 1) / s.pieces, w = widthAt(s, (t0 + t1) / 2);
+      tex.lineWidth = Math.max(0.45, (w / s.bristles.length) * 1.5);
+      for (const b of s.bristles) {
+        const f = b.fleck[p];
+        if (!f) continue;
+        const o = (b.off * w) / 2;
+        tex.strokeStyle = `rgba(255,255,255,${f * s.alpha})`;
+        tex.beginPath();
+        tex.moveTo(s.ax + dx * t0 + nx * o, s.ay + dy * t0 + ny * o);
+        tex.lineTo(s.ax + dx * t1 + nx * o, s.ay + dy * t1 + ny * o);
+        tex.stroke();
+      }
+    }
+    tree.drawn[i] = upto;
+  });
+}
+
+// The whole tree takes the colour of the latest firework sent, easing toward it; crowns nearby
+// still add their own light on top.
+let tint = RESIN.map(v => v / TINT_LEVEL), tintTarget = tint.slice();
+
+function drawTree() {
+  layer.globalCompositeOperation = "source-over";
+  layer.clearRect(0, 0, W, H);
+  const k = TINT_LEVEL * 1.5;   // the brushwork is partly see-through, so the colour runs a little hotter
+  layer.fillStyle = `rgb(${tint.map(v => Math.min(255, v * k) | 0).join(",")})`;
+  layer.fillRect(0, 0, W, H);
+  layer.globalCompositeOperation = "lighter";
+  for (const c of crowns) {
+    const L = lightOf(c), r = c.R * 2.6;
+    if (L <= 0.01) continue;
+    const col = c.mean.map(v => Math.round(v));
+    const gr = layer.createRadialGradient(c.x, c.y, 0, c.x, c.y, r);
+    gr.addColorStop(0, `rgba(${col},${Math.min(1, 0.45 * L)})`);
+    gr.addColorStop(0.35, `rgba(${col},${Math.min(1, 0.2 * L)})`);
+    gr.addColorStop(1, `rgba(${col},0)`);
+    layer.fillStyle = gr;
+    layer.fillRect(c.x - r, c.y - r, r * 2, r * 2);
+  }
+  layer.globalCompositeOperation = "destination-in";
+  layer.drawImage(texCv, 0, 0, W, H);
+  ctx.globalCompositeOperation = "source-over";
+  ctx.drawImage(layerCv, 0, 0, W, H);
+}
+
+// Light travelling inside the wood: a short glowing run along the path, exactly as wide as the
+// branch it's in, bright at the head and fading behind it, dimmer in the faint outer branches.
+function drawInnerLight(segIdx, headDist, length, strength, col = INNER) {
+  ctx.globalCompositeOperation = "lighter";
+  ctx.lineCap = "butt";
+  for (const i of segIdx) {
+    const s = tree.segs[i];
+    const from = Math.max(s.dist, headDist - length), to = Math.min(s.dist + s.len, headDist);
+    if (to <= from) continue;
+    const steps = Math.max(1, Math.ceil((to - from) / 3));
+    for (let k = 0; k < steps; k++) {
+      const d0 = from + ((to - from) * k) / steps, d1 = from + ((to - from) * (k + 1)) / steps;
+      const t0 = (d0 - s.dist) / s.len, t1 = (d1 - s.dist) / s.len;
+      const a = strength * (0.4 + 0.6 * s.alpha) * ((d1 - (headDist - length)) / length) ** 1.6;
+      ctx.strokeStyle = `rgba(${col.map(Math.round).join(",")},${a})`;
+      ctx.lineWidth = Math.max(0.6, widthAt(s, (t0 + t1) / 2) * 0.9);
+      ctx.beginPath();
+      ctx.moveTo(s.ax + (s.bx - s.ax) * t0, s.ay + (s.by - s.ay) * t0);
+      ctx.lineTo(s.ax + (s.bx - s.ax) * t1, s.ay + (s.by - s.ay) * t1);
+      ctx.stroke();
+    }
+  }
+}
+
+// ---------- rockets ----------
+
+let rockets = [];
+const meanOf = pal => pal.reduce((m, p) => m.map((v, k) => v + p[k] / pal.length), [0, 0, 0]);
+
+// Three sizes: medium (half the time), small or big (a quarter each).
+const MEDIUM = () => Math.min(W, H) * rand(0.15, 0.22);
+function fireworkRadius() {
+  const r = Math.random();
+  return MEDIUM() * (r < 0.25 ? 0.6 : r < 0.75 ? 1 : 1.45);
+}
+
+// Each firework's palette and size are chosen when it's sent: its light climbs in that colour,
+// and the tree turns toward it.
+function launch(tip, R) {
+  const segs = chainTo(tip.seg);
+  const end = tree.segs[tip.seg];
+  const pal = pick(PALETTES), mean = meanOf(pal);
+  tip.busy = true;
+  tintTarget = mean;
+  rockets.push({ tip, segs, pal, R, s: 0, v: H * 0.25, end: end.dist + end.len,
+                 col: mean.map(v => v + (255 - v) * 0.55) });
+}
+
+function updateRockets(dt) {
+  rockets = rockets.filter(r => {
+    r.v = Math.min(H * 1.1, r.v + H * 1.4 * dt);
+    r.s = Math.min(r.end, r.s + r.v * dt);
+    if (r.s < r.end) return true;
+    crowns.push(makeCrown(r.tip, r.pal, r.R));
+    return false;
+  });
+}
+
+// ---------- crowns ----------
+// Each crown paints itself, element by element, onto its own offscreen canvas as the burst
+// spreads, so the brushwork accumulates; the finished painting is then composited every frame
+// with a "screen" blend and faded as a whole when the crown dies.
+
+let crowns = [];
+const BURST = 1.5, HOLD = 5, FADE = 1.5;
+
+function stroke(at, w0, w1, col, alpha, { bristles = 4, dry = 0.5, t0 = 0, dur = 0.7, n = 24 } = {}) {
+  return { kind: "stroke", at, w0, w1, col, alpha, dry, t0, dur, n, done: 0,
+           bristles: Array.from({ length: bristles }, (_, i) => ({
+             off: bristles === 1 ? 0 : -1 + (2 * i) / (bristles - 1) + rand(-0.15, 0.15), a: rand(0.55, 1) })) };
+}
+
+function makeCrown(tip, pal, R) {
+  const S = Math.ceil(R * 2.9);
+  // bigger bursts get more brushwork and smaller ones less, so density stays about the same
+  const f = (R / (Math.min(W, H) * 0.185)) ** 0.8;
+  const count = (a, b) => Math.max(3, Math.round(rand(a, b) * f));
+  const c = document.createElement("canvas");
+  c.width = c.height = Math.ceil(S * dpr);
+  const g = c.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, (S * dpr) / 2, (S * dpr) / 2);   // (0, 0) is the crown's centre
+  g.lineCap = "round";
+  const any = () => (Math.random() < 0.18 ? pick([CREAM, WHITE]) : pick(pal));
+  const polar = (a, r) => [Math.cos(a) * r, Math.sin(a) * r];
+  const els = [];
+
+  // dry-brush streaks radiating out, evenly spaced around the burst
+  const nStreak = count(36, 60);
+  for (let i = 0; i < nStreak; i++) {
+    const a = (i / nStreak) * TAU + rand(-0.1, 0.1), r0 = R * rand(0.04, 0.3), r1 = R * rand(0.55, 1.12), bend = rand(-0.18, 0.18);
+    els.push(stroke(t => polar(a + bend * t, r0 + (r1 - r0) * t), rand(1.5, 5), 0.5, any(), rand(0.55, 0.9),
+                    { bristles: 5, dry: rand(0.3, 0.8), t0: rand(0, 0.15), dur: rand(0.5, 0.9) }));
+  }
+  // paint drips: thick tapering streaks, mostly running down (a few rising), like the reference
+  for (let i = 0, n = count(8, 16); i < n; i++) {
+    const [sx, sy] = polar(rand(TAU), R * rand(0.1, 0.8));
+    const a = (Math.random() < 0.75 ? Math.PI / 2 : -Math.PI / 2) + rand(-0.22, 0.22), len = R * rand(0.2, 0.55);
+    els.push(stroke(t => [sx + Math.cos(a) * len * t, sy + Math.sin(a) * len * t], rand(4, 8), rand(0.6, 1.5), pick(pal), rand(0.5, 0.85),
+                    { bristles: 7, dry: rand(0.3, 0.6), t0: 0.2 + rand(0.5), dur: rand(0.5, 0.9), n: 18 }));
+  }
+  // comma flicks curling at the edge
+  for (let i = 0, n = count(4, 10); i < n; i++) {
+    const a = rand(TAU), rc = R * rand(0.5, 0.95), rr = R * rand(0.08, 0.18), ph = rand(TAU), sweep = rand(1.2, 2.2) * pick([-1, 1]);
+    const [cx, cy] = polar(a, rc);
+    els.push(stroke(t => [cx + Math.cos(ph + sweep * t) * rr, cy + Math.sin(ph + sweep * t) * rr], rand(3, 5), 0.6,
+                    pick([rgb("#f08aa0"), rgb("#ff6a5a"), pick(pal)]), rand(0.6, 0.9),
+                    { bristles: 3, dry: 0.2, t0: 0.35 + (rc / R) * 0.4, dur: 0.4, n: 14 }));
+  }
+  // fine white sparks shooting furthest
+  for (let i = 0, n = count(14, 26); i < n; i++) {
+    const a = rand(TAU), r1 = R * rand(0.7, 1.3);
+    els.push(stroke(t => polar(a, r1 * t), 1.1, 0.3, pick([WHITE, CREAM]), rand(0.6, 0.95),
+                    { bristles: 1, dry: 0.15, t0: rand(0, 0.1), dur: rand(0.4, 0.7), n: 20 }));
+  }
+  // splatter
+  for (let i = 0, n = count(110, 200); i < n; i++) {
+    const r = R * Math.random() ** 0.6 * 1.2, [x, y] = polar(rand(TAU), r);
+    const big = Math.random() < 0.06;
+    els.push({ kind: "dot", x, y, r: big ? rand(2.5, 5) : rand(0.4, 2), col: any(), alpha: rand(0.5, 0.95), t0: 0.1 + (r / R) * 0.7 });
+  }
+
+  const mean = meanOf(pal);
+  const x = tip.x + Math.cos(tip.a) * R * 0.12, y = tip.y + Math.sin(tip.a) * R * 0.12;
+  return { tip, x, y, R, S, cv: c, g, els, pal, mean, age: 0, phase: rand(TAU) };
+}
+
+function paintStroke(g, e, p0, p1) {
+  const steps = Math.max(1, Math.ceil((p1 - p0) * e.n));
+  for (let k = 0; k < steps; k++) {
+    const t0 = p0 + ((p1 - p0) * k) / steps, t1 = p0 + ((p1 - p0) * (k + 1)) / steps;
+    const [x0, y0] = e.at(t0), [x1, y1] = e.at(t1);
+    const m = Math.hypot(x1 - x0, y1 - y0) || 1, nx = -(y1 - y0) / m, ny = (x1 - x0) / m;
+    const w = e.w0 + (e.w1 - e.w0) * t1;
+    g.lineWidth = Math.max(0.4, (w / e.bristles.length) * (e.bristles.length > 1 ? 1.9 : 1));
+    for (const b of e.bristles) {
+      if (Math.random() < 0.04 + e.dry * t1 * t1) continue;   // the brush runs dry toward the tip
+      const o = (b.off * w) / 2;
+      g.strokeStyle = `rgba(${e.col.join(",")},${e.alpha * b.a})`;
+      g.beginPath(); g.moveTo(x0 + nx * o, y0 + ny * o); g.lineTo(x1 + nx * o, y1 + ny * o); g.stroke();
+    }
+  }
+}
+
+function paintCrown(c) {
+  for (const e of c.els) {
+    if (e.finished || c.age < e.t0) continue;
+    if (e.kind === "stroke") {
+      const p = easeOut(clamp((c.age - e.t0) / e.dur, 0, 1));
+      paintStroke(c.g, e, e.done, p);
+      e.done = p;
+      if (p >= 1) e.finished = true;
+    } else {
+      c.g.fillStyle = `rgba(${e.col.join(",")},${e.alpha})`;
+      c.g.beginPath(); c.g.arc(e.x, e.y, e.r, 0, TAU); c.g.fill();
+      if (e.r > 2.4) { c.g.beginPath(); c.g.arc(e.x + rand(-1, 1) * e.r, e.y + rand(-1, 1) * e.r, e.r * 0.5, 0, TAU); c.g.fill(); }
+      e.finished = true;
+    }
+  }
+}
+
+// a crown holds for HOLD seconds after it's generated, then fades out over FADE seconds
+const fadeOf = c => clamp(1 - (c.age - HOLD) / FADE, 0, 1);
+const lightOf = c => fadeOf(c) * (0.5 + 1.1 * Math.exp(-c.age * 1.8)) * Math.min(1, c.age * 3 + 0.2);
+
+// glitter and twinkles that keep a finished crown alive
+let motes = [];
+function updateCrowns(dt) {
+  crowns = crowns.filter(c => {
+    c.age += dt;
+    paintCrown(c);
+    const f = fadeOf(c);
+    if (c.age > BURST * 0.6) {
+      for (let n = Math.floor(dt * 10 * f + Math.random()); n > 0; n--) {
+        const a = rand(TAU), r = c.R * Math.sqrt(Math.random()) * 1.05;
+        motes.push({ x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r, vx: 0, vy: 0, life: rand(0.2, 0.6), max: 0.6,
+                     col: Math.random() < 0.6 ? WHITE : pick(c.pal), size: rand(0.8, 1.8) });
+      }
+      if (Math.random() < dt * 2.5 * f) {
+        const a = rand(0.2, Math.PI - 0.2), r = c.R * rand(0.2, 0.9);
+        motes.push({ x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r, vx: rand(-4, 4), vy: rand(14, 30), life: rand(1.5, 2.6), max: 2.6,
+                     col: GOLD, size: rand(0.8, 1.4) });
+      }
+    }
+    if (f > 0) return true;
+    c.tip.busy = false;
+    return false;
+  });
+  motes = motes.filter(m => (m.life -= dt) > 0 && ((m.x += m.vx * dt), (m.y += m.vy * dt), true));
+}
+
+function drawCrowns(time) {
+  ctx.globalCompositeOperation = "screen";
+  for (const c of crowns) {
+    const f = fadeOf(c);
+    ctx.globalAlpha = f * (0.93 + 0.07 * Math.sin(time * 0.9 + c.phase));
+    ctx.drawImage(c.cv, c.x - c.S / 2, c.y - c.S / 2, c.S, c.S);
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "lighter";
+  for (const m of motes) {
+    const a = (m.life / m.max) * (Math.random() < 0.3 ? 0.3 : 1);
+    ctx.fillStyle = `rgba(${m.col.join(",")},${a})`;
+    ctx.fillRect(m.x - m.size / 2, m.y - m.size / 2, m.size, m.size);
+  }
+  ctx.globalCompositeOperation = "source-over";
+}
+
+// ---------- scheduling ----------
+// At most four fireworks at a time (counting ones still rising or fading). Each new one goes to
+// the free tip with the most room around it, given its own size and the others', and waits if
+// none has enough room to keep them from piling on top of each other.
+
+const MAX_FIREWORKS = 4;
+const SPREAD = 0.68;   // centres must be at least this fraction of the two radii apart
+let cooldown = 0, nextR = null;
+
+function freeTip(R) {
+  // crowns already fading out don't hold their spot
+  const busy = [...crowns.filter(c => c.age < HOLD).map(c => [c.x, c.y, c.R]), ...rockets.map(r => [r.tip.x, r.tip.y, r.R])];
+  let best = null, bestScore = -Infinity;
+  for (const t of tree.tips) {
+    if (t.busy) continue;
+    const score = busy.length ? Math.min(...busy.map(([x, y, r]) => Math.hypot(x - t.x, y - t.y) - SPREAD * (R + r))) : rand(1);
+    if (score > bestScore) { bestScore = score; best = t; }
+  }
+  return busy.length && bestScore < 0 ? null : best;
+}
+
+const canLaunch = () => crowns.length + rockets.length < MAX_FIREWORKS;
+
+// The next firework's size is rolled once and kept until it finds room, so crowding never
+// skews the odds toward small ones.
+function trySend() {
+  nextR ??= fireworkRadius();
+  const t = freeTip(nextR);
+  if (!t) return;
+  launch(t, nextR);
+  nextR = null;
+}
+
+function schedule(dt) {
+  cooldown -= dt;
+  if (!tree.grown || cooldown > 0 || !canLaunch()) return;
+  trySend();
+  cooldown = rand(0.35, 0.9);
+}
+
+// ---------- loop ----------
+
+let time = 0, growDist = 0;
+
+function frame(dt) {
+  time += dt;
+  if (!tree.grown) {
+    growDist += dt * H * 0.55;
+    if (growDist >= tree.depth) tree.grown = true;
+  }
+  const ease = 1 - Math.exp(-dt * 1.6);
+  tint = tint.map((v, k) => v + (tintTarget[k] - v) * ease);
+  schedule(dt);
+  updateRockets(dt);
+  updateCrowns(dt);
+
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
+  paintTexture(tree.grown ? 0 : growDist);
+  drawTree();
+  if (!tree.grown) {
+    // the growing tips glow from inside the wood
+    const fronts = [];
+    tree.segs.forEach((s, i) => { if (growDist > s.dist && growDist < s.dist + s.len + H * 0.05) fronts.push(i); });
+    drawInnerLight(fronts, growDist, H * 0.05, 0.8);
+  }
+  for (const r of rockets) drawInnerLight(r.segs, r.s, H * 0.09, 0.85, r.col);
+  drawCrowns(time);
+}
+
+// Clear every crown and rocket, then grow the tree again from the root. The first call (or a
+// resize) builds the tree; the button replays the same tree's growth.
+function reset(rebuild = false) {
+  for (const c of crowns) c.tip.busy = false;
+  for (const r of rockets) r.tip.busy = false;
+  crowns = []; rockets = []; motes = []; growDist = 0; cooldown = 0.4; nextR = null;
+  tint = RESIN.map(v => v / TINT_LEVEL); tintTarget = tint.slice();
+  if (rebuild || !tree) buildTree();
+  else { tree.grown = false; clearTexture(); }
+}
+
+let last = performance.now(), running = false;
+function tick(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  frame(dt);
+  requestAnimationFrame(tick);
+}
+
+function start() {
+  if (!resize()) return;   // hidden or zero-size frame: wait for a resize
+  reset(true);
+  if (running) return;
+  running = true;
+  last = performance.now();
+  requestAnimationFrame(tick);
+}
+
+let lastW = stage.clientWidth, lastH = stage.clientHeight;
+addEventListener("resize", () => {
+  if (running && Math.abs(stage.clientWidth - lastW) + Math.abs(stage.clientHeight - lastH) < 60) return;
+  lastW = stage.clientWidth; lastH = stage.clientHeight;
+  start();   // a new size gets a tree fitted to it
+});
+document.getElementById("again").onclick = () => { if (running) reset(); };
+cv.addEventListener("click", () => {
+  if (!running || !tree.grown || !canLaunch()) return;
+  trySend();
+});
+
+start();
+
+// lets a debugger advance the scene by hand and see what's alive
+window.fireworkTree = {
+  step: (dt = 1 / 60) => frame(dt),
+  state: () => ({ grown: tree.grown, crowns: crowns.length, ages: crowns.map(c => +c.age.toFixed(1)),
+                  centres: crowns.map(c => [Math.round(c.x), Math.round(c.y)]), radii: crowns.map(c => Math.round(c.R)), rockets: rockets.length, motes: motes.length,
+                  segments: tree.segs.length, tips: tree.tips.length }),
+};
+</script>
+</body>
+</html>
