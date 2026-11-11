@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emotion Tree</title>
+<link rel="stylesheet" href="/nav.css">
+<style>
+  /* --paper, --ink, --muted and --glow are set per emotion by emotions.js */
+  :root {
+    --paper: #eeede9;
+    --ink: #161514;
+    --muted: #7d7a74;
+    --glow: transparent;
+    --line: color-mix(in srgb, var(--ink) 10%, transparent);
+    --nav-bg: var(--paper);
+    --nav-ink: var(--ink);
+    --nav-muted: var(--muted);
+    --nav-line: var(--line);
+    --nav-active: color-mix(in srgb, var(--ink) 8%, transparent);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 13px/1.4 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: background-color 0.5s, color 0.5s;
+  }
+  .gnav { transition: background-color 0.5s; }
+
+  /* ---------- emotion buttons ---------- */
+  .moods {
+    position: relative;
+    z-index: 5;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .mood {
+    --c: #888;      /* the emotion's colour */
+    --on: #fff;     /* text on a filled button */
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 560;
+    color: var(--ink);
+    background: color-mix(in srgb, var(--paper) 55%, white);
+    border: 1px solid color-mix(in srgb, var(--c) 50%, var(--line));
+    border-radius: 999px;
+    padding: 6px 15px 6px 6px;
+    cursor: pointer;
+    transition: background-color 0.18s, border-color 0.18s, color 0.18s, box-shadow 0.25s, transform 0.08s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mood .num {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--c);
+    color: var(--on);
+    font-size: 11px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    transition: background-color 0.18s, color 0.18s;
+  }
+  .mood:hover {
+    background: color-mix(in srgb, var(--c) 16%, var(--paper));
+    border-color: var(--c);
+  }
+  .mood:active { transform: scale(0.96); }
+  .mood[aria-pressed="true"] {
+    background: var(--c);
+    border-color: var(--c);
+    color: var(--on);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 28%, transparent),
+                0 6px 18px -4px color-mix(in srgb, var(--c) 70%, transparent);
+  }
+  .mood[aria-pressed="true"] .num {
+    background: color-mix(in srgb, var(--on) 22%, transparent);
+    color: var(--on);
+  }
+  .mood:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--c) 60%, var(--ink));
+    outline-offset: 3px;
+  }
+  @media (max-width: 560px) {
+    .moods { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 8px 16px; }
+    .mood { justify-content: flex-start; font-size: 13px; padding-right: 8px; gap: 6px; min-width: 0; }
+    .mood .num { width: 20px; height: 20px; flex: none; }
+  }
+
+  /* ---------- stage ---------- */
+  .stage { position: relative; flex: 1; min-height: 0; transition: opacity 0.35s ease; }
+  .stage.fading { opacity: 0; }
+  .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #fx, .glow { pointer-events: none; }
+  #ink { transform-origin: 50% 90%; }   /* the ground line: gusts bend the tree from its foot */
+  .glow {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    background: radial-gradient(ellipse 55% 50% at 50% 42%, var(--glow), transparent 70%);
+    mix-blend-mode: multiply;
+  }
+
+  /* each emotion's motion, switched on by an fx-* class on the stage */
+  .fx-breathe #ink { transform-origin: 50% 90%; animation: breathe 7s ease-in-out infinite; }
+  .fx-embers .glow { animation: flicker 2.6s ease-in-out infinite; }
+  @keyframes breathe { 0%, 100% { transform: scale(1) rotate(0deg); } 50% { transform: scale(1.006) rotate(0.25deg); } }
+  @keyframes flicker {
+    0%, 100% { opacity: 0.45; } 18% { opacity: 0.8; } 24% { opacity: 0.5; } 52% { opacity: 0.9; } 70% { opacity: 0.55; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .stage { transition: none; }
+    .fx-breathe #ink { animation: none; }
+    .fx-embers .glow { animation: none; opacity: 0.6; }
+    .mood { transition: none; }
+  }
+
+  /* ---------- bottom controls (as in Sakura) ---------- */
+  .controls {
+    position: fixed;
+    left: 16px;
+    bottom: 16px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    color: var(--muted);
+  }
+  .controls button {
+    font: inherit;
+    color: var(--ink);
+    background: color-mix(in srgb, var(--paper) 85%, transparent);
+    border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+    border-radius: 999px;
+    padding: 6px 14px;
+    cursor: pointer;
+  }
+  .controls button:hover { border-color: color-mix(in srgb, var(--ink) 30%, transparent); }
+  .controls button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  @media (max-width: 560px) { #status { display: none; } }
+</style>
+</head>
+<body>
+<nav class="gnav">
+  <a class="gnav-brand" href="/">BioSense - Nicole (11/4)</a>
+  <div class="gnav-tabs">
+    <a href="/organic-algorithms.html">Tree algorithms</a>
+    <a href="/sakura.html">Sakura</a>
+    <a href="/meteor-light.html">Meteor light</a>
+    <a href="/fireworks.html">Fireworks</a>
+    <a href="/emotions.html" aria-current="page">Emotions</a>
+  </div>
+</nav>
+<div class="moods" id="moods" role="toolbar" aria-label="Choose an emotion (keys 1–6)"></div>
+<div class="stage" id="stage">
+  <canvas id="paper"></canvas>
+  <canvas id="ink" aria-label="An ink-brush tree whose shape and colours follow the chosen emotion"></canvas>
+  <div class="glow"></div>
+  <canvas id="fx"></canvas>
+</div>
+<div class="controls">
+  <button id="again">Paint again</button>
+  <span id="status"></span>
+</div>
+<script src="/emotions.js"></script>
+</body>
+</html>
