@@ -3,163 +3,139 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BioSense - Nicole (11/4)</title>
+<title>Biosense - tree visuals iteration</title>
 <link rel="stylesheet" href="/nav.css">
-<style>
-  :root {
-    --bg: #f4f1ea;
-    --card: #fffdf8;
-    --line: #e2ddd0;
-    --ink: #2b2a26;
-    --muted: #8a857a;
-    --nav-bg: var(--bg);
-    --nav-ink: var(--ink);
-    --nav-muted: var(--muted);
-    --nav-line: var(--line);
-    --nav-active: color-mix(in srgb, var(--ink) 9%, transparent);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #131412;
-      --card: #1c1e1b;
-      --line: #2d302b;
-      --ink: #e8e4da;
-      --muted: #8f8b80;
-    }
-  }
-  :root[data-theme="dark"] {
-    --bg: #131412;
-    --card: #1c1e1b;
-    --line: #2d302b;
-    --ink: #e8e4da;
-    --muted: #8f8b80;
-  }
-
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--ink);
-    font: 17px/1.65 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
-  }
-  .gnav { position: sticky; top: 0; }
-  /* one centred column, 60 characters wide */
-  main {
-    width: 100%;
-    max-width: calc(60ch + 32px);
-    margin: 0 auto;
-    padding: 56px 16px 96px;
-  }
-  p {
-    margin: 0 0 24px;
-    text-wrap: pretty;
-  }
-  p + .bookmarks { margin-top: 8px; }
-  section + section { margin-top: 64px; }
-  h2 {
-    margin: 0 0 12px;
-    font-size: 21px;
-    line-height: 1.3;
-    font-weight: 650;
-    letter-spacing: -0.01em;
-    text-wrap: balance;
-  }
-
-  .bookmarks {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  /* every bookmark is the same size: image filling the left edge, label on the right */
-  .bookmark {
-    --h: 88px;
-    display: grid;
-    grid-template-columns: calc(var(--h) * 800 / 471) minmax(0, 1fr);
-    height: var(--h);
-    color: inherit;
-    text-decoration: none;
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    overflow: hidden;
-    transition: border-color 0.15s, transform 0.15s;
-  }
-  .bookmark:hover { border-color: color-mix(in srgb, var(--ink) 35%, var(--line)); transform: translateY(-2px); }
-  .bookmark:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
-  .bookmark img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    border-right: 1px solid var(--line);
-    background: var(--line);
-  }
-  .bookmark .label {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 4px;
-    min-width: 0;
-    padding: 0 18px;
-  }
-  .bookmark .title { font-weight: 620; font-size: 16px; }
-  .bookmark .path {
-    color: var(--muted);
-    font: 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  @media (max-width: 560px) {
-    .bookmark { --h: 72px; grid-template-columns: 42% minmax(0, 1fr); }
-    .bookmark .label { padding: 0 12px; }
-    .bookmark .title { font-size: 15px; }
-  }
-  @media (prefers-reduced-motion: reduce) { .bookmark { transition: none; } .bookmark:hover { transform: none; } }
-</style>
+<link rel="stylesheet" href="/week.css">
 </head>
 <body>
 <nav class="gnav">
-  <a class="gnav-brand" href="/" aria-current="page">BioSense - Nicole (11/4)</a>
-  <div class="gnav-tabs">
-    <a href="/organic-algorithms.html">Tree algorithms</a>
-    <a href="/sakura.html">Sakura</a>
-    <a href="/meteor-light.html">Meteor light</a>
-    <a href="/fireworks.html">Fireworks</a>
-  </div>
+  <a class="gnav-brand" href="/">Biosense - tree visuals iteration</a>
+</nav>
+<div class="layout">
+<nav class="toc" aria-label="Sections">
+  <a href="#v2"><span class="toc-title">V2 Tree visuals</span><span class="toc-date">Nov 19</span></a>
+  <a href="#v1"><span class="toc-title">V1 Tree algo &amp; visualization sketches</span><span class="toc-date">Nov 4</span></a>
 </nav>
 <main>
-  <section aria-labelledby="algorithms">
-  <h2 id="algorithms">Tree-generating algorithms</h2>
-  <p>I started off by looking into 2D tree-generating algorithms to see if new forms were possible, but mainly to give myself more vocabulary for further experimentation.</p>
+  <article aria-labelledby="v2">
+    <h1 id="v2">V2 Tree visuals</h1>
+    <p class="subtitle"><time datetime="2026-11-19">November 19, 2026</time></p>
 
-  <div class="bookmarks">
-    <a class="bookmark" href="/organic-algorithms.html">
-      <img src="/thumbs/organic-algorithms.jpg" alt="Tree algorithms" width="800" height="471">
-      <span class="label"><span class="title">Tree algorithms</span><span class="path">/organic-algorithms.html</span></span>
-    </a>
-  </div>
-  </section>
+    <section aria-labelledby="emotion-tree">
+    <h2 id="emotion-tree">Tree sketches categorized by emotions</h2>
+    <p class="byline">by Ramya &amp; Nicole</p>
 
-  <section aria-labelledby="visualizations">
-  <h2 id="visualizations">New visualizations</h2>
-  <p>Then I worked on testing new visualizations, thinking about different shapes and types of trees, trees in different seasons, and how we can substitute new kinds of material and texture for the parts of the tree to make them more evocative. I played with motion design too, thinking about the generation process and motion associated with trees, like leaf fall.</p>
+    <figure class="embed">
+      <iframe src="https://emotion-tree-iota.vercel.app/emotions.html#sad" title="Emotion tree, live demo" loading="lazy"></iframe>
+      <figcaption>
+        <span><span class="title">Emotion tree</span><br><span class="path">emotion-tree-iota.vercel.app/emotions.html#sad</span></span>
+        <a class="open" href="https://emotion-tree-iota.vercel.app/emotions.html#sad" target="_blank" rel="noopener">Open ↗</a>
+      </figcaption>
+    </figure>
 
-  <div class="bookmarks">
-    <a class="bookmark" href="/sakura.html">
-      <img src="/thumbs/sakura.jpg" alt="Sakura" width="800" height="471" loading="lazy">
-      <span class="label"><span class="title">Sakura</span><span class="path">/sakura.html</span></span>
-    </a>
-    <a class="bookmark" href="/meteor-light.html">
-      <img src="/thumbs/meteor-light.jpg" alt="Meteor light" width="800" height="471" loading="lazy">
-      <span class="label"><span class="title">Meteor light</span><span class="path">/meteor-light.html</span></span>
-    </a>
-    <a class="bookmark" href="/fireworks.html">
-      <img src="/thumbs/fireworks.jpg" alt="Fireworks" width="800" height="471" loading="lazy">
-      <span class="label"><span class="title">Fireworks</span><span class="path">/fireworks.html</span></span>
-    </a>
-  </div>
-  </section>
+    <div class="bookmarks">
+      <a class="bookmark" href="https://github.com/samudraam/emotion-tree" target="_blank" rel="noopener">
+        <span class="mark" aria-hidden="true"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></span>
+        <span class="label"><span class="title">samudraam/emotion-tree</span><span class="path">github.com/samudraam/emotion-tree</span></span>
+      </a>
+    </div>
+
+    <hr class="divider">
+
+    <figure class="embed">
+      <iframe src="/emotion-closeup.html" title="Sakura close-up by emotion" loading="lazy"></iframe>
+      <figcaption>
+        <span><span class="title">Sakura close-up by emotion</span><br><span class="path">/emotion-closeup.html</span></span>
+        <a class="open" href="/emotion-closeup.html">Open ↗</a>
+      </figcaption>
+    </figure>
+
+    <figure class="embed">
+      <iframe src="/flow-impressions.html" title="Flow-field impressions by emotion" loading="lazy"></iframe>
+      <figcaption>
+        <span><span class="title">Flow-field impressions by emotion</span><br><span class="path">/flow-impressions.html</span></span>
+        <a class="open" href="/flow-impressions.html">Open ↗</a>
+      </figcaption>
+    </figure>
+    </section>
+  </article>
+
+  <article aria-labelledby="v1">
+    <h1 id="v1">V1 Tree algo &amp; visualization sketches</h1>
+    <p class="subtitle"><time datetime="2026-11-04">November 4, 2026</time></p>
+
+    <section aria-labelledby="algorithms">
+    <h2 id="algorithms">Tree-generating algorithms</h2>
+    <p class="byline">by Nicole</p>
+    <p>I started off by looking into 2D tree-generating algorithms to see if new forms were possible, but mainly to give myself more vocabulary for further experimentation.</p>
+
+    <div class="bookmarks">
+      <a class="bookmark" href="/organic-algorithms.html">
+        <img src="/thumbs/organic-algorithms.jpg" alt="Tree algorithms" width="800" height="471">
+        <span class="label"><span class="title">Tree algorithms</span><span class="path">/organic-algorithms.html</span></span>
+      </a>
+    </div>
+    </section>
+
+    <section aria-labelledby="visualizations">
+    <h2 id="visualizations">New visualizations</h2>
+    <p class="byline">by Nicole</p>
+    <p>Then I worked on testing new visualizations, thinking about different shapes and types of trees, trees in different seasons, and how we can substitute new kinds of material and texture for the parts of the tree to make them more evocative. I played with motion design too, thinking about the generation process and motion associated with trees, like leaf fall.</p>
+
+    <figure class="embed">
+      <iframe src="/sakura.html" title="Sakura sketch" loading="lazy"></iframe>
+      <figcaption>
+        <span><span class="title">Sakura</span><br><span class="path">/sakura.html</span></span>
+        <a class="open" href="/sakura.html">Open ↗</a>
+      </figcaption>
+    </figure>
+    <figure class="embed">
+      <iframe src="/meteor-light.html" title="Meteor light sketch" loading="lazy"></iframe>
+      <figcaption>
+        <span><span class="title">Meteor light</span><br><span class="path">/meteor-light.html</span></span>
+        <a class="open" href="/meteor-light.html">Open ↗</a>
+      </figcaption>
+    </figure>
+    <figure class="embed">
+      <iframe src="/fireworks.html" title="Fireworks sketch" loading="lazy"></iframe>
+      <figcaption>
+        <span><span class="title">Fireworks</span><br><span class="path">/fireworks.html</span></span>
+        <a class="open" href="/fireworks.html">Open ↗</a>
+      </figcaption>
+    </figure>
+    </section>
+  </article>
 </main>
+</div>
+<script>
+// highlight the section currently in view in the left nav
+(() => {
+  const links = [...document.querySelectorAll(".toc a")];
+  const heads = links.map(a => document.querySelector(a.getAttribute("href")));
+  const update = () => {
+    const line = window.innerHeight * 0.3;
+    let current = 0;
+    heads.forEach((h, i) => { if (h.getBoundingClientRect().top <= line) current = i; });
+    if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) current = heads.length - 1;
+    if (links[current].hasAttribute("aria-current")) return;
+    links.forEach((a, i) => i === current ? a.setAttribute("aria-current", "location") : a.removeAttribute("aria-current"));
+    // on narrow screens the nav is a sideways-scrolling row: keep the active link visible
+    const toc = links[current].parentElement;
+    if (toc.scrollWidth > toc.clientWidth) toc.scrollTo({ left: links[current].offsetLeft - 16, behavior: settled ? "smooth" : "instant" });
+  };
+  // arriving with #v1 / #v2 (e.g. from a sketch's Back link): land on that section
+  const jump = () => {
+    const target = location.hash && document.getElementById(location.hash.slice(1));
+    if (target) target.scrollIntoView({ behavior: "instant", block: "start" });
+  };
+  jump();
+  addEventListener("load", jump, { once: true });
+  addEventListener("scroll", update, { passive: true });
+  addEventListener("resize", update);
+  let settled = false;
+  update();
+  settled = true;
+})();
+</script>
 </body>
 </html>

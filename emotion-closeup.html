@@ -1,0 +1,1167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sakura Close-up</title>
+<link rel="stylesheet" href="/nav.css">
+<script>if (self !== top) document.documentElement.classList.add("in-frame");</script>
+<style>
+  :root {
+    --paper: #eeede9;
+    --ink: #161514;
+    --muted: #7d7a74;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 13px/1.4 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .stage { position: relative; flex: 1; min-height: 0; overflow: hidden; cursor: pointer; }
+  .stage.done { cursor: default; }
+  .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  /* the same quiet pills as Sakura's "Paint again" */
+  button {
+    font: inherit;
+    color: var(--ink);
+    background: rgba(238, 237, 233, 0.85);
+    border: 1px solid rgba(0, 0, 0, .12);
+    border-radius: 999px;
+    padding: 6px 14px;
+    cursor: pointer;
+  }
+  button:hover { border-color: rgba(0, 0, 0, .3); }
+  button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  /* the filter row: Back and "Show generation process" at the left (square), the emotion chips
+     centred across the stage (rounded) */
+  .filters {
+    position: absolute;
+    z-index: 2;
+    top: 12px;
+    left: 16px;
+    right: 16px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: start;
+    gap: 8px;
+  }
+  .filters .lead { grid-column: 1; justify-self: start; display: flex; gap: 6px; }
+  .filters .lead > * {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin: 0;
+    padding: 6px 14px 6px 8px;
+    font: inherit;
+    color: var(--ink);
+    text-decoration: none;
+    white-space: nowrap;
+    background: rgba(238, 237, 233, 0.85);
+    border: 1px solid rgba(0, 0, 0, .12);
+    border-radius: 0;
+    cursor: pointer;
+  }
+  .filters .lead > button { gap: 7px; padding-left: 12px; }
+  .filters .back svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .filters .lead .play { width: 10px; height: 10px; fill: currentColor; flex: none; }
+  .filters .lead > *:hover { border-color: rgba(0, 0, 0, .3); }
+  .filters .lead > *:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .in-frame .filters .back { display: none; }   /* inside the home page, the page itself is the way back */
+  .moods {
+    grid-column: 2;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+  }
+  /* narrow stages: the chips go under Back, still centred */
+  @media (max-width: 760px) {
+    .filters { grid-template-columns: minmax(0, 1fr); }
+    .moods { grid-column: 1; }
+  }
+  .moods button[aria-pressed="true"] {
+    color: var(--paper);
+    background: var(--ink);
+    border-color: var(--ink);
+  }
+  .controls {
+    position: absolute;
+    z-index: 2;
+    left: 16px;
+    bottom: 16px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    color: var(--muted);
+  }
+  .amount {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 14px;
+    color: var(--ink);
+    background: rgba(238, 237, 233, 0.85);
+    border: 1px solid rgba(0, 0, 0, .12);
+    border-radius: 999px;
+  }
+  .amount input { width: 160px; margin: 0; accent-color: var(--ink); cursor: pointer; }
+  .amount output { min-width: 3ch; color: var(--muted); font-variant-numeric: tabular-nums; }
+  @media (max-width: 560px) {
+    .moods { gap: 4px; }
+    .moods button, .filters .lead > * { padding: 5px 10px; }
+    .filters .back { padding-left: 6px; }
+    .amount { gap: 8px; padding: 4px 10px; }
+    .amount input { width: 96px; }
+  }
+</style>
+</head>
+<body>
+<nav class="gnav">
+  <a class="gnav-brand" href="/">Biosense - tree visuals iteration</a>
+</nav>
+<div class="stage" id="stage">
+  <canvas id="paper"></canvas>
+  <canvas id="ink" aria-label="A close-up ink painting of cherry branches; click to finish painting"></canvas>
+  <canvas id="fx" aria-hidden="true"></canvas>
+  <div class="filters">
+    <div class="lead">
+      <a class="back" href="/#v2" aria-label="Back to V2 Tree visuals"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>Back</a>
+      <button id="again" type="button"><svg class="play" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2v7.6a.6.6 0 0 0 .9.5l6.2-3.8a.6.6 0 0 0 0-1L2.9.7a.6.6 0 0 0-.9.5z"/></svg>Show generation process</button>
+    </div>
+    <div class="moods" id="moods" role="toolbar" aria-label="Choose an emotion (keys 1–6)"></div>
+  </div>
+  <div class="controls">
+    <label class="amount">
+      <span id="amountLabel">Blossoms</span>
+      <input id="amount" type="range" min="0" max="100" value="50" step="1">
+      <output id="amountOut" for="amount">0</output>
+    </label>
+  </div>
+</div>
+
+<script>
+// Sakura close-up: the V1 ink Sakura, seen from close in, in six moods.
+//
+// Everything here is Sakura's own vocabulary: brush strokes with a width profile and dryness, washes
+// laid in thin layers, a dried rim and flicked stamens. Each mood is a moment in the cherry's year
+// (tight buds, the first blossoms, full bloom, late bloom with young leaves, petals falling, bare
+// branches) and changes how the brush is used: the water in the ink, how the hand moves, how heavy
+// the branches hang.
+//
+// The whole tree is painted in a world as large as the stage, and a camera frames a part of the crown
+// from close in. Once the painting is done it stays still, while petals that come loose fall on a
+// canvas above it, carried by a wind whose gusts come and go.
+(() => {
+"use strict";
+
+// ---------- moods ----------
+// ink, twig, tone: the bark's colour (limbs → twigs) and strength: reddish on pink-flowered trees,
+//   near black on white-flowered ones; dry: how fast a stroke runs dry; weight: stroke width
+// droop: gravity per depth (negative reaches up); kink, kinkGap, wobble: how the hand moves
+// stage: the moment in the cherry's year; mix: what grows at each site (blossom, bud, leaf,
+//   calyx: the red cup left when the petals have gone); colours and sizes of the washes
+// stem, sepal, budCol: flower stalks, the sepals around buds and flowers, the colour of a closed bud
+// spatter: flicked ink; amount: what the amount slider counts; limbs: where the limbs enter the frame
+// wind (for the falling petals): amp (how hard it pushes), base (steady lean), pace (speed of its
+//   changes), gustRate (gusts a second), gust (gust strength)
+// fall: petals coming loose each second once the painting is done; air: petals painted in the air
+//   instead, when motion is reduced
+
+const MOODS = {
+  stressed: {
+    key: 1, label: "Stressed", stage: "in bud", amount: "Buds",
+    ink: [46, 28, 32], twig: [124, 56, 66], tone: 0.95, dry: [0.7, 0.95], weight: 0.75,
+    droop: [0, 0.0003, 0.002, 0.004], kink: 1.8, kinkGap: [10, 30], wobble: 0.14,
+    gap: [[20, 38], [9, 20]], branchP: 0.6, branchAng: [0.5, 1.2], branchLen: [110, 220],
+    twigAng: [0.5, 1.3], twigLen: [25, 75], twigW: [0.9, 2.2],
+    mix: { bud: 0.75, blossom: 0.25 },
+    blossom: { pink: [244, 214, 222], blush: [222, 160, 176], rose: [150, 90, 104], size: [7, 11], bud: [3.6, 6.2],
+               stem: [150, 62, 78], sepal: [132, 40, 58], budCol: [200, 92, 118],
+               count: [1, 2, 2, 3], spread: 7, density: 0.8, washA: 0.17, stamens: [3, 7] },
+    spatter: 14,
+    wind: { amp: 3.5, base: 0.08, pace: 1.4, gustRate: 0.22, gust: 1 },
+    fall: 0, air: 0, startCount: 120,   // a new painting opens with 120 on the slider
+  },
+  calm: {
+    key: 2, label: "Calm", stage: "first blossoms", amount: "Blossoms",
+    ink: [22, 21, 20], twig: [36, 34, 33], tone: 0.95, dry: [0.2, 0.45], weight: 0.85,
+    droop: [0, 0.0004, 0.002, 0.005], kink: 0.3, kinkGap: [60, 120], wobble: 0.02,
+    gap: [[70, 120], [40, 70]], branchP: 0.55, branchAng: [0.3, 0.7], branchLen: [220, 360],
+    twigAng: [0.3, 0.7], twigLen: [70, 150],
+    mix: { blossom: 0.5, bud: 0.5 },
+    blossom: { pink: [247, 241, 239], blush: [226, 212, 210], rose: [168, 156, 154], size: [10, 15], bud: [3.5, 5.5],
+               stem: [62, 56, 54], sepal: [128, 92, 86], budCol: [232, 204, 206],
+               count: [1, 1, 1, 2], spread: 16, density: 0.5, washA: 0.15, stamens: [2, 5] },
+    spatter: 0,
+    wind: { amp: 3, base: 0.2, pace: 0.55, gustRate: 0.03, gust: 0.4 },
+    fall: 0.08, air: 2,
+  },
+  joyful: {
+    key: 3, label: "Joyful", stage: "full bloom", amount: "Blossoms",
+    ink: [54, 32, 34], twig: [130, 62, 70], tone: 1, dry: [0.1, 0.35], weight: 1,
+    droop: [0, -0.0009, -0.0005, 0.0015], kink: 0.75, kinkGap: [34, 80], wobble: 0.05,
+    gap: [[32, 60], [16, 32]], branchP: 0.8, branchAng: [0.35, 0.85], branchLen: [160, 290],
+    twigAng: [0.35, 0.9], twigLen: [45, 110],
+    mix: { blossom: 0.94, bud: 0.06 },
+    blossom: { pink: [249, 215, 214], blush: [238, 168, 170], rose: [198, 118, 120], size: [12, 19], bud: [4, 6],
+               stem: [158, 74, 88], sepal: [140, 48, 64], budCol: [214, 112, 134],
+               count: [1, 1, 1, 2], spread: 20, density: 0.6, washA: 0.2, stamens: [4, 8] },
+    spatter: 0,
+    wind: { amp: 5.5, base: 0.3, pace: 1, gustRate: 0.1, gust: 0.8 },
+    fall: 0.5, air: 12,
+  },
+  loved: {
+    key: 4, label: "Loved", stage: "late bloom, young leaves", amount: "Blossoms & leaves",
+    ink: [60, 30, 36], twig: [140, 58, 74], tone: 0.92, dry: [0.15, 0.4], weight: 1,
+    droop: [0, 0.0006, 0.0025, 0.007], kink: 0.5, kinkGap: [40, 90], wobble: 0.06,
+    gap: [[34, 64], [18, 36]], branchP: 0.75, branchAng: [0.35, 0.9], branchLen: [150, 280],
+    twigAng: [0.4, 0.9], twigLen: [40, 100],
+    mix: { blossom: 0.55, leaf: 0.45 },
+    blossom: { pink: [244, 190, 200], blush: [226, 120, 146], rose: [170, 60, 90], size: [11, 17], bud: [4, 6],
+               stem: [168, 66, 88], sepal: [140, 38, 62], budCol: [206, 84, 116],
+               leaf: [204, 138, 108], leafRim: [150, 86, 62], leafSize: [16, 26],
+               count: [2, 2, 3], spread: 9, density: 0.55, washA: 0.22, stamens: [3, 7] },
+    spatter: 0,
+    wind: { amp: 4, base: 0.25, pace: 0.8, gustRate: 0.05, gust: 0.5 },
+    fall: 0.3, air: 8,
+  },
+  sad: {
+    key: 5, label: "Sad", stage: "petals falling", amount: "Blossoms left",
+    ink: [26, 28, 34], twig: [40, 42, 50], tone: 0.9, dry: [0.2, 0.45], weight: 0.6,
+    droop: [0, 0.0018, 0.005, 0.011], kink: 0.45, kinkGap: [40, 90], wobble: 0.03,
+    gap: [[55, 95], [28, 50]], branchP: 0.5, branchAng: [0.25, 0.55], branchLen: [160, 280],
+    twigAng: [0.2, 0.5], twigLen: [70, 160],
+    mix: { blossom: 0.55, calyx: 0.22, none: 0.23 },
+    blossom: { pink: [236, 231, 234], blush: [204, 200, 212], rose: [136, 132, 150], size: [9, 14], bud: [4, 6],
+               stem: [70, 66, 74], sepal: [118, 92, 104], budCol: [222, 208, 216],
+               calyx: [130, 82, 84], ragged: 0.6,
+               count: [1, 1, 2], spread: 12, density: 0.5, washA: 0.15, stamens: [2, 5] },
+    spatter: 0,
+    wind: { amp: 4, base: 0.2, pace: 0.5, gustRate: 0.05, gust: 0.6 },
+    fall: 2.6, air: 40, startMax: 50,   // a new painting opens with fewer than 50 blossoms left
+    // the limbs come in from the left, above and outside the frame: only their thin ends and twigs
+    // reach into it, bowing down toward the lower right
+    limbs: { side: 1, reach: 0.35, rows: [[-0.45, -0.2, 1], [-0.3, -0.05, 0.7]], tilt: [-0.25, 0.05],
+             w: [7, 12], len: [1.4, 2] },
+  },
+  angry: {
+    key: 6, label: "Angry", stage: "bare branches", amount: "Remnants",
+    ink: [12, 10, 10], twig: [22, 18, 18], tone: 1, dry: [0.45, 0.8], weight: 1.45,
+    droop: [0, 0, 0.001, 0.003], kink: 1.7, kinkGap: [14, 40], wobble: 0.04,
+    gap: [[30, 58], [14, 28]], branchP: 0.55, branchAng: [0.5, 1.1], branchLen: [120, 240],
+    twigAng: [0.6, 1.3], twigLen: [25, 70], twigW: [1.6, 4],
+    mix: { none: 0.62, calyx: 0.3, blossom: 0.08 },
+    blossom: { pink: [241, 223, 221], blush: [214, 146, 142], rose: [140, 30, 30], size: [7, 11], bud: [4, 6],
+               stem: [46, 36, 36], sepal: [104, 38, 38], budCol: [200, 120, 120],
+               calyx: [120, 60, 52], ragged: 1,
+               count: [1, 1, 2], spread: 8, density: 0.35, washA: 0.17, stamens: [2, 5] },
+    spatter: 34,
+    wind: { amp: 8, base: 0.4, pace: 1.3, gustRate: 0.3, gust: 1.4 },
+    fall: 0, gustPetals: 5, air: 6,
+  },
+};
+const ORDER = Object.keys(MOODS).sort((a, b) => MOODS[a].key - MOODS[b].key);
+
+// ---------- helpers ----------
+
+const LH = 1000;
+let LW = 1600, K = 1, GROUND = 900;
+const TAU = Math.PI * 2;
+const PAPER_RGB = [238, 237, 233];
+const REDUCE = matchMedia("(prefers-reduced-motion: reduce)").matches;
+// Every painting is drawn from a seed, so "Show generation process" can repaint the same picture
+// stroke by stroke. All randomness below goes through random().
+let seed = 0, rng = Math.random;
+const random = () => rng();
+const rand = (a, b) => (b === undefined ? random() * a : a + random() * (b - a));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const pick = arr => arr[(random() * arr.length) | 0];
+const gauss = () => (random() + random() + random() - 1.5) / 1.5;
+const mix = (a, b, t) => a.map((v, k) => Math.round(v + (b[k] - v) * t));
+// a small seeded generator, so an item paints the same way every time it is redrawn
+const seeded = seed => () => {
+  seed = (seed + 0x6D2B79F5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+let IR = random;
+const irand = (a, b) => (b === undefined ? IR() * a : a + IR() * (b - a));
+const choose = weights => {
+  let r = random() * Object.values(weights).reduce((a, b) => a + b, 0);
+  for (const [k, w] of Object.entries(weights)) if ((r -= w) <= 0) return k;
+  return Object.keys(weights)[0];
+};
+
+const vnoise = (() => {
+  const P = new Float32Array(1024);
+  for (let i = 0; i < 1024; i++) P[i] = random();
+  const h = (x, y) => P[(((x * 73856093) ^ (y * 19349663)) >>> 0) & 1023];
+  const s = t => t * t * (3 - 2 * t);
+  return (x, y) => {
+    const xi = Math.floor(x), yi = Math.floor(y), u = s(x - xi), v = s(y - yi);
+    const a = h(xi, yi), b = h(xi + 1, yi), c = h(xi, yi + 1), d = h(xi + 1, yi + 1);
+    return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+  };
+})();
+
+// the active mood
+let M, B, INK_RGB, INK, PINK, BLUSH, STEM;
+function use(id) {
+  M = MOODS[id];
+  B = M.blossom;
+  INK_RGB = M.ink;
+  INK = INK_RGB.join(",");
+  PINK = B.pink.join(",");
+  BLUSH = B.blush.join(",");
+  STEM = (B.stem || INK_RGB).join(",");
+}
+
+// ---------- canvases and camera ----------
+
+const stage = document.getElementById("stage");
+const paperCv = document.getElementById("paper");
+const inkCv = document.getElementById("ink");
+const fxCv = document.getElementById("fx");
+const pctx = paperCv.getContext("2d");
+const ctx = inkCv.getContext("2d", { willReadFrequently: true });
+const fctx = fxCv.getContext("2d");
+let S = 1, DPR = 1;   // device pixels per world unit at zoom 1; device pixels per CSS pixel
+
+// The camera: the view's top-left corner in world units, and its zoom.
+const ZOOM = 4.2;
+let CAM = { x: 0, y: 0, z: 1 };
+const VW = () => LW / CAM.z, VH = () => LH / CAM.z;
+const inView = (x, y, m = 0) => x > CAM.x - m && x < CAM.x + VW() + m && y > CAM.y - m && y < CAM.y + VH() + m;
+// world units → CSS pixels on the stage
+const cssX = x => (x - CAM.x) * CAM.z * stage.clientHeight / LH;
+const cssY = y => (y - CAM.y) * CAM.z * stage.clientHeight / LH;
+const cssLen = v => v * CAM.z * stage.clientHeight / LH;
+
+function layout() {
+  DPR = window.devicePixelRatio || 1;
+  const w = stage.clientWidth, h = stage.clientHeight;
+  LW = (LH * w) / h;
+  K = clamp(LW / 1500, 0.6, 1);
+  GROUND = LH * 0.9;
+  S = (h * DPR) / LH;
+  for (const cv of [paperCv, inkCv, fxCv]) { cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR); }
+  pctx.setTransform(S, 0, 0, S, 0, 0);
+  fctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+
+function setCamera(cam) {
+  CAM = cam;
+  const z = S * cam.z;
+  ctx.setTransform(z, 0, 0, z, -cam.x * z, -cam.y * z);
+}
+
+// The camera sits in the middle of the world, above the ground. The tree is built around it rather
+// than the other way round: two or three limbs reach in from one side of the frame and spread out
+// across it, as if the trunk stood just out of the picture.
+function placeCamera() {
+  const z = ZOOM / Math.sqrt(K), vw = LW / z, vh = LH / z;
+  return { x: (LW - vw) / 2, y: clamp(LH * 0.42 - vh / 2, 10, GROUND - 40 - vh), z };
+}
+
+function paintPaper() {
+  pctx.fillStyle = "#eeede9";
+  pctx.fillRect(0, 0, LW, LH);
+  const g = pctx.createRadialGradient(LW / 2, LH * 0.45, LH * 0.2, LW / 2, LH * 0.5, Math.max(LW, LH) * 0.8);
+  g.addColorStop(0, "rgba(255,255,255,0.2)");
+  g.addColorStop(1, "rgba(120,115,105,0.1)");
+  pctx.fillStyle = g;
+  pctx.fillRect(0, 0, LW, LH);
+  pctx.lineWidth = 0.35;
+  for (let i = 0, n = (LW * LH) / 260; i < n; i++) {
+    const x = rand(LW), y = rand(LH), a = rand(TAU), l = rand(3, 14);
+    pctx.strokeStyle = `rgba(110,105,95,${rand(0.03, 0.08)})`;
+    pctx.beginPath(); pctx.moveTo(x, y);
+    pctx.quadraticCurveTo(x + Math.cos(a + 0.6) * l * 0.5, y + Math.sin(a + 0.6) * l * 0.5, x + Math.cos(a) * l, y + Math.sin(a) * l);
+    pctx.stroke();
+  }
+  const img = pctx.getImageData(0, 0, paperCv.width, paperCv.height), d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const n = (random() - 0.5) * 7;
+    d[i] += n; d[i + 1] += n; d[i + 2] += n;
+  }
+  pctx.putImageData(img, 0, 0);
+}
+
+// ---------- strokes ----------
+// Sakura's strokes, sampled finer: seen this close, its spacing of 3.2 shows as bands across the
+// thick limbs. U converts Sakura's per-sample constants to the same lengths in world units.
+
+const DL = 1;
+const U = DL / 3.2;
+const SPEED = 3;   // samples per frame: about half Sakura's pace, since the camera magnifies every stroke
+
+function makeStroke({ x, y, a, w0, len, depth, tone, start,
+                      droop = M.droop[depth] ?? 0, taper = 0.6, tail = true, flare = 0, kink = M.kink, dry, hold = null }) {
+  const pts = [];
+  const wrap = () => { while (a < -Math.PI / 2) a += TAU; while (a >= 1.5 * Math.PI) a -= TAU; };
+  wrap();
+  const seed = rand(1000);
+  let kinkIn = rand(...M.kinkGap), knot = 0;
+  const n = Math.max(4, Math.round(len / DL));
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    let w = w0 * (1 - taper * t ** 1.1);
+    w *= 0.75 + 0.25 * Math.min(1, (i * U) / 4) + (i * U < 3 ? 0.18 : 0);
+    if (flare) w *= 1 + flare * Math.max(0, 1 - (i * U) / 14) ** 2;
+    w *= 1 + 0.22 * Math.max(0, 1 - (knot * U) / 4);
+    if (tail && t > 0.86) w *= Math.max(0.12, 1 - (t - 0.86) / 0.14) ** 0.8;
+    pts.push({ x, y, w });
+    a += (Math.PI / 2 - a) * droop * DL * (0.4 + t) + (vnoise(seed, i * U * 0.06) - 0.5) * M.wobble * U;
+    if (hold) a += Math.atan2(Math.sin(hold[0] - a), Math.cos(hold[0] - a)) * hold[1] * U;
+    if (x < 30) a += (Math.sin(a) > 0 ? -0.03 : 0.03) * U; else if (x > LW - 30) a += (Math.sin(a) > 0 ? 0.03 : -0.03) * U;
+    knot++;
+    if ((kinkIn -= DL) <= 0) {
+      a += rand(-0.38, 0.38) * kink;
+      kinkIn = rand(...M.kinkGap); knot = 0;
+    }
+    wrap();
+    x += Math.cos(a) * DL; y += Math.sin(a) * DL;
+    if (y > LH - 6 || y < 6 || x < 4 || x > LW - 4) break;
+    if (depth >= 1 && depth <= 3 && y > GROUND - 10) break;
+  }
+  const Bn = clamp(Math.round(w0 * 0.9), 4, 40);
+  const bristles = Array.from({ length: Bn }, (_, j) => ({
+    u: -1 + (2 * (j + 0.5)) / Bn + rand(-0.3, 0.3) / Bn,
+    ink: rand(0.78, 1.02),
+    seed: rand(1000),
+  }));
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[Math.max(0, i - 1)], q = pts[Math.min(pts.length - 1, i + 1)];
+    const dx = q.x - p.x, dy = q.y - p.y, m = Math.hypot(dx, dy) || 1;
+    pts[i].nx = -dy / m; pts[i].ny = dx / m;
+  }
+  const twig = M.twig || M.ink;
+  const ink = depth >= 3 ? twig : depth === 2 ? mix(M.ink, twig, 0.4) : M.ink;   // young wood is redder or greyer
+  return { pts, bristles, depth, ink, tone: tone * M.tone, start, dry: dry ?? rand(...M.dry), drawn: 0, sites: [] };
+}
+
+function buildScene() {
+  const strokes = [];
+  const add = opts => { const s = makeStroke(opts); if (s.pts.length < 2) return s; strokes.push(s); grow(s); return s; };
+  const at = (s, i) => {
+    const j = Math.min(i + 1, s.pts.length - 1), k = j === i ? i - 1 : i;
+    return { p: s.pts[i], a: Math.atan2(s.pts[j].y - s.pts[k].y, s.pts[j].x - s.pts[k].x) };
+  };
+  const tw = M.twigW || [1.3, 3.8];
+  const grow = s => {
+    if (s.depth < 1 || s.depth >= 3) return;
+    const n = s.pts.length, gap = M.gap[s.depth - 1];
+    let i = Math.round((rand(...gap) * K) / DL) + 4;
+    let side = random() < 0.5 ? 1 : -1;
+    while (i < n - 4) {
+      const { p, a } = at(s, i);
+      const start = s.start + i / SPEED + rand(2, 10);
+      side = -side;
+      if (s.depth === 1 && random() < M.branchP) {
+        add({ x: p.x, y: p.y, a: a + side * rand(...M.branchAng), w0: p.w * rand(0.45, 0.65),
+              len: rand(...M.branchLen) * K, depth: 2, tone: rand(0.82, 0.96), start });
+      } else {
+        const light = random() < 0.2;
+        add({ x: p.x, y: p.y, a: a + side * rand(...M.twigAng), w0: clamp(p.w * rand(0.45, 0.6), tw[0] * M.weight, tw[1] * M.weight),
+              len: rand(...M.twigLen) * K, depth: 3, tone: light ? rand(0.35, 0.5) : rand(0.62, 0.92), start });
+      }
+      i += Math.round((rand(...gap) * K) / DL);
+    }
+  };
+
+  // limbs enter from one side, at the top, middle and foot of the frame: the upper ones hold level
+  // or dip, the lower ones climb, all of them spreading across toward the far side
+  const side = M.limbs?.side ?? (random() < 0.5 ? 1 : -1);   // 1: from the left
+  const vx = CAM.x, vy = CAM.y, vw = VW(), vh = VH();
+  const L = M.limbs || {};
+  const rows = L.rows || [[0.06, 0.28, 0.75], [0.38, 0.62, 1], [0.74, 0.98, 0.75]];
+  const reach = (L.reach || 0) * vw;
+  let limb = 0;
+  for (const [lo, hi, chance] of rows) {
+    if (random() > chance) continue;
+    const u = rand(lo, hi), y = vy + vh * u;
+    const tilt = L.tilt ? rand(...L.tilt) : 0.12 - 0.55 * u + rand(-0.1, 0.1);   // radians: + dips, - climbs
+    const x = side > 0 ? vx - reach - rand(6, 30) * K : vx + vw + reach + rand(6, 30) * K;
+    add({ x, y, a: side > 0 ? tilt : Math.PI - tilt, w0: rand(...(L.w || [16, 30])) * K * M.weight, len: vw * rand(...(L.len || [0.95, 1.45])),
+          depth: 1, tone: rand(0.9, 0.97), start: 10 + limb * rand(12, 36), taper: 0.7 });
+    limb++;
+  }
+
+  // sites for twice the mood's density: the amount slider shows any share of them
+  const step = (lo, hi) => Math.max(2, Math.round((rand(lo, hi) * K) / DL / (B.density * 2)));
+  for (const s of strokes) {
+    const n = s.pts.length;
+    if (s.depth === 1) s.sites.push(n - 1);
+    if (s.depth === 2) for (let i = Math.round(n * 0.3); i < n; i += step(45, 90)) s.sites.push(i);
+    if (s.depth === 3) {
+      for (let i = Math.round(n * 0.2); i < n - 2; i += step(20, 40)) s.sites.push(i);
+      s.sites.push(n - 1);
+    }
+  }
+  return { strokes };
+}
+
+
+// ---------- brush ----------
+
+const inkTone = (d, rgb = INK_RGB) => `rgb(${PAPER_RGB.map((p, k) => Math.round(p + (rgb[k] - p) * d)).join(",")})`;
+
+function paintChunk(s, i0, i1) {
+  const pts = s.pts, n = pts.length;
+  const mid = pts[(i0 + i1) >> 1];
+  const t = ((i0 + i1) / 2) / (n - 1);
+  const lw = Math.max(0.35, (mid.w / s.bristles.length) * 2.1);
+  const from = Math.max(0, i0 - Math.round(2 / U));
+  ctx.save();
+  ctx.globalCompositeOperation = "darken";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  for (const b of s.bristles) {
+    const ink = b.ink - s.dry * t ** 1.3 * (0.5 + Math.abs(b.u));
+    const grain = vnoise(mid.x * 0.33 + b.seed, mid.y * 0.33);
+    const d = clamp((ink - 0.22 + (grain - 0.5) * 0.55) * 2.3, 0, 1) * s.tone;
+    if (d < 0.04) continue;
+    ctx.strokeStyle = inkTone(d, s.ink);
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    for (let i = from; i <= i1; i++) {
+      const p = pts[i];
+      const splay = (vnoise(b.seed, i * U * 0.08) - 0.5) * 0.25;
+      const o = (b.u * 0.92 + splay) * p.w * 0.5;
+      const x = p.x + p.nx * o, y = p.y + p.ny * o;
+      i === from ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ink flicked off the brush: a few dense clusters of dots and short tails near the limbs
+function paintSpatter(strokes) {
+  const limbs = strokes.filter(s => s.depth >= 1 && s.depth <= 2);
+  if (!limbs.length) return;
+  for (let c = 0; c < M.spatter; c++) {
+    const s = pick(limbs), p = pick(s.pts);
+    if (!inView(p.x, p.y, 20)) continue;
+    const dir = rand(TAU), dots = (rand(4, 14)) | 0;
+    for (let k = 0; k < dots; k++) {
+      const r = Math.abs(gauss()) * 26 * K, a = dir + gauss() * 0.7;
+      const x = p.x + Math.cos(a) * r, y = p.y + Math.sin(a) * r;
+      const size = rand(0.25, 1.6) * K * (1 - r / (60 * K));
+      if (size <= 0.1) continue;
+      ctx.fillStyle = `rgba(${INK},${rand(0.55, 0.9)})`;
+      ctx.beginPath(); ctx.ellipse(x, y, size * rand(1, 2.4), size, a, 0, TAU); ctx.fill();
+    }
+  }
+}
+
+// ---------- what grows at each site ----------
+// blossom: five notched petals (ragged: some already gone); bud: a closed bud on its own stalk, held
+// in a cup of sepals, sometimes swelling to show its petals; leaf: a young bronze leaf with a vein;
+// calyx: the small red cup and stalk left when the petals have fallen.
+// As in Sakura, each takes the ink already under its stalk, and washes are laid in thin layers.
+
+function inkAt(img, x, y, r = 3) {
+  const P = PAPER_RGB[0] + PAPER_RGB[1] + PAPER_RGB[2], I = INK_RGB[0] + INK_RGB[1] + INK_RGB[2];
+  const z = S * CAM.z;
+  let sum = 0, cnt = 0;
+  for (let oy = -r; oy <= r; oy++)
+    for (let ox = -r; ox <= r; ox++) {
+      const px = Math.round((x + ox - CAM.x) * z), py = Math.round((y + oy - CAM.y) * z);
+      if (px < 0 || py < 0 || px >= img.width || py >= img.height) continue;
+      const k = (py * img.width + px) * 4, d = img.data;
+      sum += (d[k + 3] / 255) * clamp((P - d[k] - d[k + 1] - d[k + 2]) / (P - I), 0, 1); cnt++;
+    }
+  return cnt ? sum / cnt : 0;
+}
+
+function blossomOutline(petals) {
+  const N = 60, pts = [], seed = rand(100);
+  for (let i = 0; i < N; i++) {
+    const th = (i / N) * TAU;
+    const k = (th * 5) / TAU, pi = Math.floor(k), phi = k - pi;
+    const lobe = Math.sin(Math.PI * phi) ** 0.5;
+    const notch = rand(0.08, 0.22) * Math.exp(-(((phi - 0.5) / 0.07) ** 2));
+    const wobble = 0.85 + 0.3 * vnoise(seed + Math.cos(th) * 1.6, Math.sin(th) * 1.6);
+    const r = (0.38 + 0.62 * lobe - notch) * petals[pi % 5] * wobble;
+    pts.push([Math.cos(th) * r, Math.sin(th) * r]);
+  }
+  return pts;
+}
+
+// a cherry leaf: pointed tip, rounded base, finely toothed edge, lying along +x from its stalk
+function leafOutline() {
+  const N = 60, pts = [], fat = rand(0.3, 0.4);
+  for (let i = 0; i < N; i++) {
+    const th = (i / N) * TAU, c = Math.cos(th), s = Math.sin(th);
+    const u = (1 - c) / 2;                               // 0 at the tip, 1 at the base
+    const width = fat * Math.sin(Math.PI * (0.15 + 0.85 * u)) ** 0.8;
+    const tooth = 1 + 0.06 * Math.sin(i * 2.6);
+    pts.push([0.5 + c * 0.5, s * width * tooth]);
+  }
+  return pts;
+}
+
+// a closed bud seen from the side: an egg, fuller at the base and narrowing to a soft point
+function budOutline(swell) {
+  const N = 48, pts = [], seed = rand(100), W = swell ? 0.6 : 0.5;
+  for (let i = 0; i < N; i++) {
+    const th = (i / N) * TAU, c = Math.cos(th);
+    const wobble = 0.95 + 0.1 * vnoise(seed + c * 1.4, Math.sin(th) * 1.4);
+    pts.push([c * (1 + 0.06 * Math.max(0, c) ** 4) * wobble, Math.sin(th) * W * (1 - 0.22 * c) * wobble]);
+  }
+  return pts;
+}
+
+// the calyx: a small cup holding the base of the bud, its rim split into three short sepal tips
+// that point along the bud. A swelling bud sits a little lower in it and shows more of its petals.
+function calyxOutline(swell) {
+  const W = swell ? 0.6 : 0.5, rim = swell ? -0.78 : -0.62, tip = swell ? -0.5 : -0.25;
+  const half = W * Math.sqrt(1 - rim * rim) * (1 - 0.22 * rim) + 0.06;   // just outside the bud at the rim
+  const base = -1.12, side = [];
+  for (let k = 0; k <= 8; k++) {
+    const u = k / 8;
+    side.push([base + (rim - base) * u, half * Math.sqrt(u) * (0.9 + 0.1 * u)]);
+  }
+  const notch = rim + (tip - rim) * 0.35;
+  const keys = [[rim, half], [tip, half * 0.72], [notch, half * 0.3], [tip + 0.06, 0], [notch, -half * 0.3], [tip, -half * 0.72], [rim, -half]];
+  const lip = [];
+  for (let k = 0; k < keys.length - 1; k++)
+    for (let j = 0; j < 4; j++) {
+      const u = j / 4, [x0, y0] = keys[k], [x1, y1] = keys[k + 1];
+      lip.push([x0 + (x1 - x0) * u + rand(-0.015, 0.015), y0 + (y1 - y0) * u + rand(-0.015, 0.015)]);
+    }
+  return [...side, ...lip, ...side.slice().reverse().map(([x, y]) => [x, -y])];
+}
+
+function makeItems(strokes, img, t0, t1) {
+  const items = [];
+  for (const s of strokes)
+    for (const i of s.sites) {
+      const p = s.pts[i];
+      if (!inView(p.x, p.y, 30)) continue;
+      const local = inkAt(img, p.x, p.y);
+      const when = clamp((s.start + i / SPEED - t0) / Math.max(1, t1 - t0), 0, 1);
+      const count = pick(B.count);
+      // which way the twig runs here: buds grow out from it on their stalks
+      const j0 = Math.max(0, i - 2), j1 = Math.min(s.pts.length - 1, i + 2);
+      const head = Math.atan2(s.pts[j1].y - s.pts[j0].y, s.pts[j1].x - s.pts[j0].x);
+      for (let k = 0; k < count; k++) {
+        const kind = choose(M.mix);
+        if (kind === "none") continue;
+        const ink = clamp((0.35 + 0.9 * local) * rand(0.7, 1.3), 0.3, 1.2);
+        const m = clamp(0.2 + 0.25 * ink, 0, 0.5);
+        const spread = (kind === "bud" || kind === "calyx" ? 0.6 : 1) * B.spread;
+        let x = p.x + rand(-spread, spread) * K, y = p.y + rand(-spread * 0.6, spread) * K;
+        const it = { kind, ax: p.x, ay: p.y, x, y, ink, rot: rand(TAU), squash: rand(0.55, 1),
+                     rim: mix(B.rose, INK_RGB, m).join(","), start: Math.round(when * 150 + rand(0, 30)), t: 0,
+                     rank: random(), seed: (random() * 2 ** 31) | 0 };
+        it.rng = seeded(it.seed);
+        const sep = B.sepal || [120, 60, 60];
+        it.sepal = mix(sep, INK_RGB, rand(0, 0.2)).join(",");
+        it.sepalEdge = mix(sep, INK_RGB, 0.45).join(",");
+        if (kind === "bud") {
+          // buds grow only on thin, young wood: the outer part of a twig, never off a branch or limb
+          if (s.depth < 3 || i < s.pts.length * 0.35 || p.w > 2.4 * K * M.weight) continue;
+          // the stalk leaves the twig at a narrow angle, leaning the way the twig grows, and is finer
+          // than the twig it comes from
+          const a = head + (random() < 0.5 ? -1 : 1) * rand(0.18, 0.5);
+          const stalk = rand(4, 9) * K;
+          it.sx = p.x + Math.cos(a) * stalk; it.sy = p.y + Math.sin(a) * stalk;
+          it.axis = a + rand(-0.12, 0.12);
+          it.stalkW = clamp(p.w * 0.45, 0.3 * K, 0.6 * K);
+        }
+        if (kind === "blossom") {
+          it.R = rand(...B.size) * K;
+          // seated on the twig itself, no stalk: the flower's centre lies within its own radius of the site
+          const d = rand(0.15, 0.7) * it.R, a0 = rand(TAU);
+          x = it.x = p.x + Math.cos(a0) * d; y = it.y = p.y + Math.sin(a0) * d;
+          const petals = Array.from({ length: 5 }, () => rand(0.82, 1.08));
+          if (random() < (B.ragged || 0)) for (let j = (rand(1, 4)) | 0; j > 0; j--) petals[(random() * 5) | 0] = rand(0.3, 0.5);
+          it.outline = blossomOutline(petals);
+          it.stamens = (rand(...B.stamens)) | 0;
+          it.peek = random() < 0.7;   // sepal tips showing between the petals
+        } else if (kind === "bud") {
+          // the bud and the cup of sepals it sits in, both outlines in the bud's own frame: x runs
+          // along the stalk's direction, the bud's base at x = -1 and its tip at x = 1
+          it.swell = random() < 0.4;
+          it.R = rand(...B.bud) * K * (it.swell ? 1.2 : 1);   // half the bud's length
+          it.rot = it.axis; it.squash = 1;
+          it.outline = budOutline(it.swell);
+          it.cup = calyxOutline(it.swell);
+          const col = B.budCol || B.blush;
+          it.body = (it.swell ? mix(B.pink, col, 0.35) : col).join(",");
+          it.deep = mix(col, INK_RGB, 0.3).join(",");
+          x = it.x = it.sx + Math.cos(it.axis) * it.R * 1.1;
+          y = it.y = it.sy + Math.sin(it.axis) * it.R * 1.1;
+        } else if (kind === "leaf") {
+          it.R = rand(...B.leafSize) * K;
+          it.rot = Math.atan2(y - p.y, x - p.x) + rand(-0.6, 0.6);
+          x = it.x = p.x + Math.cos(it.rot) * rand(2, 5) * K;
+          y = it.y = p.y + Math.sin(it.rot) * rand(2, 5) * K;
+          it.squash = rand(0.7, 1);
+          it.outline = leafOutline();
+          it.body = mix(B.leaf, [158, 170, 108], rand(0.15, 0.6)).join(",");
+          it.edge = mix(B.leafRim, INK_RGB, 0.2).join(",");
+        } else {   // calyx
+          it.R = rand(1.8, 2.8) * K;
+          it.col = mix(B.calyx, INK_RGB, rand(0, 0.3)).join(",");
+        }
+        if (!inView(x, y, it.R * 2)) continue;
+        items.push(it);
+      }
+    }
+  return items;
+}
+
+const STALK = 7, BLOOM = 38;
+
+function tf(f, px, py, scale) {
+  const c = Math.cos(f.rot), s = Math.sin(f.rot);
+  const x = px * scale, y = py * scale * f.squash;
+  return [f.x + x * c - y * s, f.y + x * s + y * c];
+}
+
+function washLayer(f, sc, fill, extra) {
+  const ox = irand(-0.05, 0.05) * f.R, oy = irand(-0.05, 0.05) * f.R;
+  ctx.beginPath();
+  f.outline.forEach(([px, py], i) => {
+    const j = irand(0.97, 1.03);
+    const [x, y] = tf(f, px * j, py * j, sc);
+    i ? ctx.lineTo(x + ox, y + oy) : ctx.moveTo(x + ox, y + oy);
+  });
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.fill();
+  if (extra) { ctx.fillStyle = extra; ctx.fill(); }
+}
+
+function dryRim(f, color, lobes) {
+  ctx.lineCap = "round";
+  const o = f.outline, per = o.length / lobes;
+  for (let pass = 0; pass < 3; pass++) {
+    ctx.strokeStyle = `rgba(${color},${irand(0.1, 0.22)})`;
+    ctx.lineWidth = irand(0.3, 0.7) * K;
+    for (let k = 0; k < lobes; k++) {
+      if (IR() < 0.35) continue;
+      const a = Math.round(irand(per * 0.3)), b = Math.round(per - irand(per * 0.3));
+      const sc = f.R * irand(0.95, 1.02);
+      ctx.beginPath();
+      for (let i = a; i <= b; i++) {
+        const [px, py] = o[(Math.round(k * per) + i) % o.length];
+        const [x, y] = tf(f, px, py, sc);
+        i === a ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+  }
+}
+
+function stamenDots(f, n) {
+  for (let k = 0; k < n; k++) {
+    const a = irand(TAU), r = f.R * irand(0.08, 0.36);
+    const x = f.x + Math.cos(a) * r, y = f.y + Math.sin(a) * r * f.squash;
+    ctx.fillStyle = `rgba(${INK},${irand(0.5, 0.85) * M.tone})`;
+    ctx.beginPath(); ctx.ellipse(x, y, irand(0.35, 0.7) * K, irand(0.3, 0.55) * K, irand(TAU), 0, TAU); ctx.fill();
+  }
+}
+
+// one frame of one item; true once it is finished
+function paintItem(f) {
+  IR = f.rng;
+  const t = f.t++;
+  if (t <= STALK) {
+    const u0 = Math.max(0, t - 1) / STALK, u1 = t / STALK;
+    const ex = f.sx ?? f.x, ey = f.sy ?? f.y;   // a bud sits on the end of its stalk
+    const mx = (f.ax + ex) / 2 + (ex - f.ax) * 0.15, my = (f.ay + ey) / 2 - 2;
+    const at = u => {
+      const v = 1 - u;
+      return [v * v * f.ax + 2 * v * u * mx + u * u * ex, v * v * f.ay + 2 * v * u * my + u * u * ey];
+    };
+    ctx.strokeStyle = f.kind === "calyx" ? `rgba(${f.col},0.5)` : `rgba(${STEM},${0.75 * Math.min(1, f.ink + 0.2) * M.tone})`;
+    ctx.lineWidth = f.stalkW ?? (f.kind === "calyx" ? 0.5 : 0.6) * K;
+    ctx.lineCap = "round";
+    if (f.kind !== "blossom") { ctx.beginPath(); ctx.moveTo(...at(u0)); ctx.lineTo(...at(u1)); ctx.stroke(); }
+    return false;
+  }
+  const g = t - STALK;
+
+  if (f.kind === "calyx") {
+    // five short sepals folded back around a dark cup, and the bare style
+    ctx.lineCap = "round";
+    const dir = Math.atan2(f.y - f.ay, f.x - f.ax);
+    for (let k = 0; k < 5; k++) {
+      const a = dir + Math.PI + (k - 2) * 0.55 + irand(-0.15, 0.15);
+      ctx.strokeStyle = `rgba(${f.col},${irand(0.3, 0.5)})`;
+      ctx.lineWidth = irand(0.35, 0.6) * K;
+      ctx.beginPath(); ctx.moveTo(f.x, f.y);
+      ctx.lineTo(f.x + Math.cos(a) * f.R * irand(0.7, 1.1), f.y + Math.sin(a) * f.R * irand(0.7, 1.1)); ctx.stroke();
+    }
+    ctx.fillStyle = `rgba(${f.col},0.55)`;
+    ctx.beginPath(); ctx.ellipse(f.x, f.y, f.R * 0.4, f.R * 0.32, dir, 0, TAU); ctx.fill();
+    ctx.strokeStyle = `rgba(${INK},0.5)`;
+    ctx.lineWidth = 0.35 * K;
+    ctx.beginPath(); ctx.moveTo(f.x, f.y);
+    ctx.lineTo(f.x + Math.cos(dir) * f.R * 1.2, f.y + Math.sin(dir) * f.R * 1.2); ctx.stroke();
+    return true;
+  }
+
+  if (f.kind === "bud") {
+    // painted like the blossoms: the bud's colour in thin layers spreading from its middle, deepest
+    // at the base; then the cup of sepals over it in the same way; then the rims dry
+    const cup = { ...f, outline: f.cup };
+    if (g < 12) {
+      const p = (g + 1) / 12, sc = f.R * (0.45 + 0.55 * (1 - (1 - p) ** 2));
+      washLayer(f, sc, `rgba(${f.body},0.2)`, p < 0.5 ? `rgba(${f.deep},0.06)` : null);
+      return false;
+    }
+    if (g < 15) {
+      const low = { ...f, x: f.x - Math.cos(f.axis) * f.R * 0.4, y: f.y - Math.sin(f.axis) * f.R * 0.4 };
+      washLayer(low, f.R * 0.62, `rgba(${f.deep},0.12)`);
+      return false;
+    }
+    if (g < 23) {
+      washLayer(cup, f.R, `rgba(${f.sepal},0.2)`, g < 17 ? `rgba(${f.sepalEdge},0.05)` : null);
+      return false;
+    }
+    dryRim(f, f.rim, 2);
+    dryRim(cup, f.sepalEdge, 3);
+    return true;
+  }
+
+  if (f.kind === "leaf") {
+    if (g < BLOOM * 0.8) {
+      const p = (g + 1) / (BLOOM * 0.8), sc = f.R * (1 - (1 - p) ** 3);
+      washLayer(f, sc, `rgba(${f.body},0.13)`, p < 0.4 ? `rgba(${f.edge},0.04)` : null);
+      return false;
+    }
+    dryRim(f, f.edge, 2);
+    // the midrib and a few side veins
+    ctx.lineCap = "round";
+    ctx.strokeStyle = `rgba(${f.edge},0.45)`;
+    ctx.lineWidth = 0.45 * K;
+    ctx.beginPath(); ctx.moveTo(...tf(f, 0.02, 0, f.R)); ctx.lineTo(...tf(f, 0.92, 0, f.R)); ctx.stroke();
+    ctx.lineWidth = 0.3 * K;
+    for (let k = 1; k <= 5; k++) {
+      const u = k / 6.5;
+      for (const side of [-1, 1]) {
+        ctx.beginPath(); ctx.moveTo(...tf(f, u, 0, f.R));
+        ctx.lineTo(...tf(f, u + 0.12, side * 0.22 * Math.sin(Math.PI * (0.15 + 0.85 * (1 - u))), f.R)); ctx.stroke();
+      }
+    }
+    return true;
+  }
+
+  // an open blossom: the sepal tips first, where they show between the petals; then one wash layer
+  // per frame, each a little larger; then the rim dries
+  if (g === 0 && f.peek) {
+    for (let k = 0; k < 5; k++) {
+      const th = (k / 5) * TAU + irand(-0.1, 0.1), l = irand(1.05, 1.2);
+      ctx.beginPath();
+      ctx.moveTo(...tf(f, Math.cos(th - 0.2) * 0.5, Math.sin(th - 0.2) * 0.5, f.R));
+      ctx.lineTo(...tf(f, Math.cos(th) * l, Math.sin(th) * l, f.R));
+      ctx.lineTo(...tf(f, Math.cos(th + 0.2) * 0.5, Math.sin(th + 0.2) * 0.5, f.R));
+      ctx.closePath();
+      ctx.fillStyle = `rgba(${f.sepal},0.7)`;
+      ctx.fill();
+    }
+  }
+  const bloom = BLOOM;
+  if (g < bloom) {
+    const p = (g + 1) / bloom, sc = f.R * (1 - (1 - p) ** 3);
+    washLayer(f, sc, `rgba(${PINK},${B.washA})`, p < 0.5 ? `rgba(${BLUSH},0.06)` : null);
+    ctx.fillStyle = `rgba(${INK},${0.012 * f.ink * (1.5 - p)})`;
+    ctx.fill();
+    return false;
+  }
+  dryRim(f, f.rim, 5);
+  stamenDots(f, f.stamens);
+  return true;
+}
+
+// petals painted in the air, used instead of falling ones when motion is reduced
+function paintStillPetal(x, y, s, rot, squash) {
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(rot); ctx.scale(1, squash);
+  petalPath(ctx, s);
+  ctx.fillStyle = `rgba(${PINK},0.95)`; ctx.fill();
+  ctx.fillStyle = `rgba(${BLUSH},0.25)`; ctx.fill();
+  ctx.strokeStyle = `rgba(${B.rose.join(",")},0.35)`; ctx.lineWidth = 0.3; ctx.stroke();
+  ctx.restore();
+}
+
+function petalPath(c, s) {
+  c.beginPath();
+  c.moveTo(-s, 0);
+  c.bezierCurveTo(-s * 0.6, -s * 1.1, s * 0.7, -s * 1.0, s, -s * 0.25);
+  c.lineTo(s * 0.72, 0);
+  c.lineTo(s, s * 0.25);
+  c.bezierCurveTo(s * 0.7, s * 1.0, -s * 0.6, s * 1.1, -s, 0);
+}
+
+// ---------- wind ----------
+// A steady lean with an occasional gust. Nothing blows until the painting is finished, and the wind
+// rises gently from still. It only carries the falling petals; the painting itself does not move.
+
+// the wind's state, advanced once a frame
+const wind = { lean: 0, gust: 0, gustT0: 0, gustDur: 0, gustStr: 0, nextGust: 0, t: 0 };
+function updateWind(now, dt) {
+  const W = M.wind;
+  wind.t += dt * W.pace;
+  if (now > wind.nextGust) {
+    wind.gustT0 = now; wind.gustDur = rand(1200, 3200) / W.pace; wind.gustStr = W.gust * rand(0.5, 1);
+    wind.nextGust = now + wind.gustDur + (-Math.log(1 - random()) / W.gustRate) * 1000;
+  }
+  const g = clamp((now - wind.gustT0) / wind.gustDur, 0, 1);
+  wind.gust = wind.gustStr * Math.sin(Math.PI * g) ** 2;
+  wind.lean = W.base * (0.6 + 0.8 * vnoise(wind.t * 0.25, 3.7)) + wind.gust;
+}
+
+// ---------- falling petals ----------
+// In CSS pixels on the fx canvas, carried by the same wind.
+
+let falling = [], fallAcc = 0, items = [];
+function spawnPetal(fromEdge) {
+  const s = cssLen(rand(2.6, 4.4) * K);
+  if (fromEdge) {
+    falling.push({ x: -20, y: rand(stage.clientHeight * 0.8), vx: rand(80, 160), vy: rand(10, 40), s, rot: rand(TAU), vr: rand(-4, 4), ph: rand(TAU), torn: true });
+    return;
+  }
+  const open = items.filter(f => f.kind === "blossom");   // only what the slider shows
+  if (!open.length) return;
+  const f = pick(open);
+  falling.push({ x: cssX(f.x) + rand(-0.5, 0.5) * cssLen(f.R), y: cssY(f.y) + rand(-0.5, 0.5) * cssLen(f.R),
+                 vx: 0, vy: rand(12, 30), s, rot: rand(TAU), vr: rand(-1.6, 1.6), ph: rand(TAU), torn: false });
+}
+
+function drawPetals(dt) {
+  const w = stage.clientWidth, h = stage.clientHeight, W = M.wind;
+  fctx.clearRect(0, 0, w, h);
+  const push = wind.lean * 70 * W.amp / 5;   // wind speed in CSS px a second
+  falling = falling.filter(p => {
+    p.ph += dt * rand(2, 3.2);
+    p.vx += (push - p.vx) * Math.min(1, dt * (p.torn ? 2 : 0.8));
+    p.vy += ((p.torn ? 30 : 34) - p.vy) * Math.min(1, dt * 0.6);
+    p.x += (p.vx + Math.sin(p.ph) * 14) * dt;
+    p.y += (p.vy + Math.cos(p.ph * 0.7) * 6) * dt;
+    p.rot += p.vr * dt;
+    if (p.y > h + 20 || p.x > w + 30 || p.x < -40) return false;
+    fctx.save();
+    fctx.translate(p.x, p.y); fctx.rotate(p.rot); fctx.scale(1, 0.25 + 0.75 * Math.abs(Math.cos(p.ph)));
+    petalPath(fctx, p.s);
+    fctx.fillStyle = `rgba(${PINK},0.92)`; fctx.fill();
+    fctx.fillStyle = `rgba(${BLUSH},0.4)`; fctx.fill();
+    fctx.strokeStyle = `rgba(${B.rose.join(",")},0.6)`; fctx.lineWidth = 0.6; fctx.stroke();
+    fctx.restore();
+    return true;
+  });
+}
+
+// ---------- timeline ----------
+// branches → spatter → buds, blossoms, leaves → the wind. Strokes the camera never sees are
+// skipped, and the clock starts just before the first brush enters the frame. Clicking the stage
+// while it is still being painted finishes the painting at once.
+
+let run = 0, finishRun = -1;
+let pool = [], ordered = [], branches = null, stillPetals = [], paintedCount = -1;
+const amountIn = document.getElementById("amount");
+const amountOut = document.getElementById("amountOut");
+const amountLabel = document.getElementById("amountLabel");
+// the slider is a count: the first n of the pool in rank order
+const count = () => +amountIn.value;
+const shown = () => ordered.slice(0, count());
+
+// Paints instantly by default. `animate` shows the generation process; `fresh` rolls a new picture,
+// otherwise the current one is painted again from its seed.
+function paint({ animate = false, fresh = true } = {}) {
+  const id = ++run;
+  if (fresh) seed = (Math.random() * 4294967296) | 0;
+  rng = seeded(seed);
+  if (!animate) finishRun = id;
+  if (!stage.clientWidth || !stage.clientHeight) return;
+  stage.classList.remove("done");
+  falling = []; items = []; pool = []; ordered = []; branches = null; stillPetals = []; paintedCount = -1;
+  layout();
+  fctx.clearRect(0, 0, stage.clientWidth, stage.clientHeight);
+  paintPaper();
+  setCamera(placeCamera());
+  const scene = buildScene();
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, inkCv.width, inkCv.height); ctx.restore();
+
+  const strokes = [];
+  for (const s of scene.strokes) {
+    const i = s.pts.findIndex(p => inView(p.x, p.y, p.w + 12));
+    if (i < 0) continue;
+    s.enter = s.start + i / SPEED;
+    strokes.push(s);
+  }
+  amountLabel.textContent = M.amount;
+  amountOut.value = "0";
+  if (!strokes.length) { stage.classList.add("done"); return; }
+  const tStart = Math.min(...strokes.map(s => s.enter)) - 6;
+  const tEnd = Math.max(...strokes.map(s => s.start + s.pts.length / SPEED));
+  for (const s of strokes) {
+    const upto = Math.min(s.pts.length - 1, Math.floor((tStart - s.start) * SPEED));
+    if (upto > 0) { paintChunk(s, 0, upto); s.drawn = upto + 1; }
+  }
+
+  let frame = Math.max(0, tStart), pending = null, itemFrame = 0;
+
+  // one frame of painting; false once there is nothing left to paint
+  const step = () => {
+    if (!pending) {
+      let active = 0;
+      for (const s of strokes) {
+        if (frame < s.start || s.drawn >= s.pts.length) continue;
+        active++;
+        const i1 = Math.min(s.pts.length - 1, s.drawn + SPEED);
+        paintChunk(s, s.drawn, i1);
+        s.drawn = i1 + 1;
+      }
+      frame++;
+      if (!active && frame > tEnd) {
+        paintSpatter(strokes);
+        branches = document.createElement("canvas");
+        branches.width = inkCv.width; branches.height = inkCv.height;
+        branches.getContext("2d").drawImage(inkCv, 0, 0);
+        const img = ctx.getImageData(0, 0, inkCv.width, inkCv.height);
+        pool = makeItems(scene.strokes, img, tStart, tEnd);
+        ordered = pool.slice().sort((a, b) => a.rank - b.rank);
+        // the slider reaches half the pool. A new painting opens at the mood's own count (startCount,
+        // or just under startMax) or the middle of the slider; a repaint keeps what was chosen.
+        const max = Math.floor(pool.length / 2), was = count();
+        amountIn.max = String(max);
+        const v = fresh ? (M.startCount ?? (M.startMax ? M.startMax - 1 : Math.round(max / 2))) : was;
+        amountIn.value = String(clamp(v, 0, max));
+        paintedCount = count();
+        pending = items = shown();
+        amountOut.value = String(items.length);
+      }
+      return true;
+    }
+    if (pending.length) {
+      pending = pending.filter(f => itemFrame < f.start || !paintItem(f));
+      itemFrame++;
+      return true;
+    }
+    return false;
+  };
+
+  const finished = () => {
+    stage.classList.add("done");
+    if (paintedCount !== count()) redrawItems();   // the slider moved while the painting was being skipped
+    if (REDUCE) {
+      // no wind: leave a few petals in the air, as Sakura does
+      for (let k = 0; k < M.air; k++)
+        stillPetals.push([CAM.x + rand(VW()), CAM.y + rand(VH()), rand(2.6, 4.4) * K, rand(TAU), rand(0.3, 0.9)]);
+      for (const sp of stillPetals) paintStillPetal(...sp);
+      return;
+    }
+    const start = performance.now();
+    let last = start;
+    wind.nextGust = start + rand(1500, 4000); wind.gustDur = 1; wind.gustT0 = -1e9;
+    (function blow(now) {
+      if (id !== run) return;
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      updateWind(now, dt);
+      const rise = clamp((now - start) / 2500, 0, 1);
+      // petals come loose, more of them in a gust; Angry's are torn off and blown in from upwind
+      fallAcc += dt * (M.fall * (0.6 + wind.gust) + (M.gustPetals || 0) * wind.gust ** 2) * rise;
+      while (fallAcc >= 1) { fallAcc -= 1; spawnPetal(!!M.gustPetals); }
+      drawPetals(dt);
+      requestAnimationFrame(blow);
+    })(start);
+  };
+
+  (function tick() {
+    if (id !== run) return;
+    if (finishRun === id) { while (step()); finished(); return; }
+    if (step()) requestAnimationFrame(tick); else finished();
+  })();
+}
+
+// The amount slider shows the first n of the pool, in rank order, over the same branches. More: the new items are painted
+// on top. Fewer: the branches are put back and the remaining items repainted, each from its own seed,
+// so they come back exactly as they were. The tree itself is never rebuilt.
+function redrawItems() {
+  if (!branches) return;
+  const n = count(), next = shown(), more = n > paintedCount && paintedCount >= 0;
+  const add = more ? ordered.slice(paintedCount, n) : next;
+  if (!more) {
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, inkCv.width, inkCv.height); ctx.drawImage(branches, 0, 0);
+    ctx.restore();
+  }
+  for (const f of add) {
+    f.t = 0; f.rng = seeded(f.seed);
+    while (!paintItem(f));
+  }
+  if (!more) for (const sp of stillPetals) paintStillPetal(...sp);
+  items = next;
+  paintedCount = n;
+  amountOut.value = String(items.length);
+}
+
+let amountQueued = false;
+amountIn.addEventListener("input", () => {
+  if (!branches) { finishRun = run; return; }   // still painting: finish it, and the new amount applies at the end
+  if (!stage.classList.contains("done")) { finishRun = run; return; }
+  if (amountQueued) return;
+  amountQueued = true;
+  requestAnimationFrame(() => { amountQueued = false; redrawItems(); });
+});
+
+// clicking the painting skips ahead to the finished picture; it never starts a new one
+stage.addEventListener("click", e => { if (!e.target.closest("button, a, label, input")) finishRun = run; });
+
+// ---------- mood buttons and keys ----------
+
+const bar = document.getElementById("moods");
+const buttons = {};
+for (const id of ORDER) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = MOODS[id].label;
+  b.title = MOODS[id].stage;
+  b.setAttribute("aria-pressed", "false");
+  b.setAttribute("aria-keyshortcuts", String(MOODS[id].key));
+  b.addEventListener("click", () => setMood(id));
+  bar.appendChild(b);
+  buttons[id] = b;
+}
+
+function setMood(id) {
+  if (!MOODS[id]) return;
+  use(id);
+  for (const k of ORDER) buttons[k].setAttribute("aria-pressed", String(k === id));
+  try { history.replaceState(null, "", "#" + id); } catch (_) {}
+  paint();
+}
+
+addEventListener("keydown", e => {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.("input, textarea, select")) return;
+  const id = ORDER.find(k => String(MOODS[k].key) === e.key);
+  if (id) setMood(id);
+});
+
+document.getElementById("again").onclick = () => paint({ animate: true, fresh: false });
+let lastW = innerWidth, lastH = innerHeight;
+addEventListener("resize", () => {
+  if (Math.abs(innerWidth - lastW) + Math.abs(innerHeight - lastH) < 60) return;
+  lastW = innerWidth; lastH = innerHeight;
+  paint({ fresh: false });
+});
+
+setMood(MOODS[location.hash.slice(1)] ? location.hash.slice(1) : "joyful");
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,862 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flow-field Impressions</title>
+<link rel="stylesheet" href="/nav.css?v=2">
+<script>if (self !== top) document.documentElement.classList.add("in-frame");</script>
+<style>
+  :root {
+    --paper: #eeede9;
+    --ink: #161514;
+    --muted: #7d7a74;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 13px/1.4 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .stage { position: relative; flex: 1; min-height: 0; overflow: hidden; cursor: pointer; background: #d8d6e0; }
+  .stage.done { cursor: default; }
+  .stage canvas, .stage .veil { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .veil { pointer-events: none; }
+  /* the sun's warmth laid over the whole picture, and the canvas weave under the paint */
+  #light { mix-blend-mode: soft-light; opacity: 0.7; }
+  #weave { mix-blend-mode: multiply; opacity: 0.55; background-size: 48px 48px; }
+
+  /* the same quiet pills as the Sakura close-up */
+  button {
+    font: inherit;
+    color: var(--ink);
+    background: rgba(238, 237, 233, 0.85);
+    border: 1px solid rgba(0, 0, 0, .12);
+    border-radius: 999px;
+    padding: 6px 14px;
+    cursor: pointer;
+  }
+  button:hover { border-color: rgba(0, 0, 0, .3); }
+  button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  /* the filter row: Back and "Show generation process" at the left (square), the emotion chips
+     centred across the stage (rounded) */
+  .filters {
+    position: absolute;
+    z-index: 2;
+    top: 12px;
+    left: 16px;
+    right: 16px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: start;
+    gap: 8px;
+  }
+  .filters .lead { grid-column: 1; justify-self: start; display: flex; gap: 6px; }
+  .filters .lead > * {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin: 0;
+    padding: 6px 14px 6px 8px;
+    font: inherit;
+    color: var(--ink);
+    text-decoration: none;
+    white-space: nowrap;
+    background: rgba(238, 237, 233, 0.85);
+    border: 1px solid rgba(0, 0, 0, .12);
+    border-radius: 0;
+    cursor: pointer;
+  }
+  .filters .lead > button { gap: 7px; padding-left: 12px; }
+  .filters .back svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .filters .lead .play { width: 10px; height: 10px; fill: currentColor; flex: none; }
+  .filters .lead > *:hover { border-color: rgba(0, 0, 0, .3); }
+  .filters .lead > *:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .in-frame .filters .back { display: none; }   /* inside the home page, the page itself is the way back */
+  .moods {
+    grid-column: 2;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+  }
+  /* narrow stages: the chips go under Back, still centred */
+  @media (max-width: 760px) {
+    .filters { grid-template-columns: minmax(0, 1fr); }
+    .moods { grid-column: 1; }
+  }
+  .moods button[aria-pressed="true"] {
+    color: var(--paper);
+    background: var(--ink);
+    border-color: var(--ink);
+  }
+  .controls {
+    position: absolute;
+    z-index: 2;
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    color: var(--muted);
+  }
+  /* the count slider and the dab-shape switch: quiet pills, as in the Sakura close-up */
+  .pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 14px;
+    color: var(--ink);
+    background: rgba(238, 237, 233, 0.85);
+    border: 1px solid rgba(0, 0, 0, .12);
+    border-radius: 999px;
+  }
+  .count input { width: 160px; margin: 0; accent-color: var(--ink); cursor: pointer; }
+  .count output { min-width: 3ch; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .switch { gap: 8px; cursor: pointer; user-select: none; }
+  .switch span { color: var(--muted); }
+  .switch:not(:has(input:checked)) .off, .switch:has(input:checked) .on { color: var(--ink); }
+  .switch input {
+    appearance: none;
+    position: relative;
+    flex: none;
+    width: 30px;
+    height: 18px;
+    margin: 0;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, .2);
+    cursor: pointer;
+    transition: background-color .15s;
+  }
+  .switch input::before {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--paper);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+    transition: transform .15s;
+  }
+  .switch input:checked { background: var(--ink); }
+  .switch input:checked::before { transform: translateX(12px); }
+  .switch input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { .switch input, .switch input::before { transition: none; } }
+  @media (max-width: 560px) {
+    .moods { gap: 4px; }
+    .moods button, .filters .lead > * { padding: 5px 10px; }
+    .filters .back { padding-left: 6px; }
+    .pill { gap: 8px; padding: 4px 10px; }
+    .count input { width: 96px; }
+  }
+</style>
+</head>
+<body>
+<nav class="gnav">
+  <a class="gnav-brand" href="/">Biosense - tree visuals iteration</a>
+</nav>
+<div class="stage" id="stage">
+  <canvas id="back" aria-hidden="true"></canvas>
+  <canvas id="trees" aria-label="A close-up impressionist oil painting of flow-field branches against the sky; click to finish painting"></canvas>
+  <canvas id="fx" aria-hidden="true"></canvas>
+  <div class="veil" id="light"></div>
+  <div class="veil" id="weave"></div>
+  <div class="filters">
+    <div class="lead">
+      <a class="back" href="/#v2" aria-label="Back to V2 Tree visuals"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>Back</a>
+      <button id="again" type="button"><svg class="play" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2v7.6a.6.6 0 0 0 .9.5l6.2-3.8a.6.6 0 0 0 0-1L2.9.7a.6.6 0 0 0-.9.5z"/></svg>Show generation process</button>
+    </div>
+    <div class="moods" id="moods" role="toolbar" aria-label="Choose an emotion (keys 1–6)"></div>
+  </div>
+  <div class="controls">
+    <label class="pill count">
+      <span id="countLabel">Blossoms</span>
+      <input id="count" type="range" min="0" max="100" value="50">
+      <output id="countOut" for="count">0</output>
+    </label>
+    <label class="pill switch" title="Shape of the dabs for leaves, blossoms and buds (key D)">
+      <span class="off">Long</span>
+      <input id="round" type="checkbox" role="switch" checked aria-label="Round dabs (key D)">
+      <span class="on">Round</span>
+    </label>
+  </div>
+</div>
+
+<script>
+// Flow-field impressions: the flow-field branches from the Organic growth algorithms page, seen from
+// close in and painted the way an Impressionist paints poplars in changing light.
+//
+// The structure is the flow-field algorithm unchanged in spirit: branch agents start at the root,
+// steer along a Perlin-noise field around their own heading, taper as they go and now and then split.
+// What changes is the brush. Nothing is drawn as a line: every branch and every clump of leaves is
+// laid in as short, loaded strokes of broken colour, with no black anywhere.
+// Each stroke is shaded by where it faces the sun: warm on the lit side, cool violet-blue in shadow,
+// and far trees fade into the haze. Each stroke also carries its own ridge of paint, catching light on
+// one edge.
+//
+// The six emotions are the V2 Sakura close-up's, at the same moments in the tree's year, and each one
+// sets an hour and a weather: the light, the palette, how the field turns and how the hand moves.
+// The trees are grown whole in a world as large as the stage, and a camera frames part of the crown
+// from close in, against a plain gradient of sky. Once the painting is done, the trees stay still;
+// petals drift down on the wind and the light comes and goes as clouds cross the sun.
+(() => {
+"use strict";
+
+// ---------- moods ----------
+// stage, hour: the moment in the tree's year and the light it is painted in
+// sky: top, middle and bottom colours of the gradient behind the branches
+// sun: where the light comes from (fractions of the view); sunCol: its colour
+// light, shadow: what a lit and a shaded stroke turn towards; bark; haze: the colour far trees fade into
+// trees: how many; size: near and far scale; spread: how tightly a tree keeps to its column
+// flow: the flow field (freq, amp: the noise; turn: how fast a branch follows it; jitter; branchP and
+//   branchAng: splitting; lift: the pull upward; droop: the pull downward on side branches)
+// brush: stroke length and width
+// fol: what grows on the branches (cols, bloom and bloomP; size of a clump; tips: share of branch tips
+//   that carry one; along: chance per step along a branch; stretch: tall clumps; ang: stroke direction)
+// count: what the count slider counts
+// wind: as in the close-up; fall: petals coming loose each second; fallCols
+
+const MOODS = {
+  stressed: {
+    key: 1, label: "Stressed", stage: "in bud", count: "Buds", hour: "cold grey morning",
+    sky: [[170, 180, 190], [196, 200, 200], [216, 216, 202]],
+    sun: [0.8, 0.26], sunCol: [238, 234, 204],
+    light: [236, 230, 186], shadow: [58, 72, 98], bark: [100, 98, 104], haze: [192, 198, 200],
+    trees: [4, 6], size: [0.5, 0.85], spread: 70, weight: 0.8, maxBranches: 140,
+    flow: { freq: 0.0065, amp: 2.4, turn: 0.18, jitter: 0.14, branchP: 0.05, branchAng: [0.5, 1.2], lift: 0.004, droop: 0 },
+    brush: { len: [5, 9], w: [2, 3.2] },
+    fol: { cols: [[150, 178, 118], [176, 196, 138], [120, 150, 108]], bloom: [[226, 214, 200]], bloomP: 0.06,
+           size: [4, 8], tips: 0.9, along: 0.012, maxW: 6, from: 0.3, stretch: 1, dabs: 1.1,
+           ang: -0.8, angJ: 1.4, len: 0.6, wid: 0.8 },
+    wind: { amp: 5, base: 0.08, flutter: 0.25, tremor: 0.45, pace: 1.4, gustRate: 0.22, gust: 1 },
+    fall: 0, fallCols: [],
+  },
+  calm: {
+    key: 2, label: "Calm", stage: "first blossoms", count: "Blossoms", hour: "lavender haze",
+    sky: [[190, 198, 224], [208, 212, 228], [232, 220, 214]],
+    sun: [0.2, 0.58], sunCol: [248, 224, 156],
+    light: [246, 214, 148], shadow: [80, 88, 164], bark: [142, 112, 150], haze: [212, 212, 230],
+    trees: [4, 4], even: true, size: [0.85, 1], spread: 20, weight: 0.9, maxBranches: 70,
+    flow: { freq: 0.003, amp: 0.55, turn: 0.1, jitter: 0.025, branchP: 0.03, branchAng: [0.2, 0.45], lift: 0.012, droop: 0 },
+    brush: { len: [8, 14], w: [2.6, 4] },
+    fol: { cols: [[90, 96, 170], [110, 110, 192], [80, 110, 150], [132, 120, 190]], bloom: [[244, 236, 240], [240, 216, 228]], bloomP: 0.1,
+           size: [10, 18], tips: 0.8, along: 0.045, maxW: 99, from: 0.12, stretch: 1.7, dabs: 1,
+           ang: -1.35, angJ: 0.5, len: 0.9, wid: 1.1 },
+    wind: { amp: 5, base: 0.2, flutter: 0.4, tremor: 0, pace: 0.55, gustRate: 0.03, gust: 0.4 },
+    fall: 0.15, fallCols: [[244, 236, 240], [236, 214, 228]],
+  },
+  joyful: {
+    key: 3, label: "Joyful", stage: "full bloom", count: "Blossoms", hour: "noon sun",
+    sky: [[146, 184, 226], [188, 212, 232], [240, 232, 200]],
+    sun: [0.55, 0.1], sunCol: [255, 240, 178],
+    light: [255, 228, 140], shadow: [106, 88, 170], bark: [122, 86, 72], haze: [210, 224, 236],
+    trees: [3, 4], size: [0.75, 1], spread: 110, weight: 1, maxBranches: 120,
+    flow: { freq: 0.0045, amp: 1.5, turn: 0.12, jitter: 0.05, branchP: 0.045, branchAng: [0.4, 0.9], lift: 0.006, droop: 0 },
+    brush: { len: [7, 12], w: [2.6, 4] },
+    fol: { cols: [[246, 188, 200], [238, 158, 180], [250, 214, 214], [168, 200, 110]], bloom: [[255, 238, 236], [255, 242, 200]], bloomP: 0.14,
+           size: [13, 24], tips: 1, along: 0.02, maxW: 10, from: 0.3, stretch: 0.9, dabs: 1,
+           ang: -0.9, angJ: 1, len: 0.8, wid: 1.1 },
+    wind: { amp: 8, base: 0.3, flutter: 0.55, tremor: 0, pace: 1, gustRate: 0.1, gust: 0.8 },
+    fall: 0.6, fallCols: [[250, 214, 216], [246, 188, 200]],
+  },
+  loved: {
+    key: 4, label: "Loved", stage: "late bloom, young leaves", count: "Blossoms & leaves", hour: "golden hour",
+    sky: [[212, 174, 192], [236, 196, 190], [250, 214, 170]],
+    sun: [0.72, 0.62], sunCol: [255, 204, 146],
+    light: [255, 202, 128], shadow: [118, 58, 110], bark: [112, 62, 66], haze: [232, 196, 196],
+    trees: [3, 5], size: [0.7, 1], spread: 90, weight: 1, maxBranches: 110,
+    flow: { freq: 0.004, amp: 1.6, turn: 0.11, jitter: 0.05, branchP: 0.04, branchAng: [0.4, 0.9], lift: 0.004, droop: 0.0015 },
+    brush: { len: [7, 12], w: [2.6, 4] },
+    fol: { cols: [[236, 140, 160], [214, 110, 138], [190, 120, 84], [214, 150, 100], [246, 180, 190]], bloom: [[255, 214, 220]], bloomP: 0.1,
+           size: [11, 20], tips: 0.95, along: 0.018, maxW: 9, from: 0.3, stretch: 1, dabs: 0.95,
+           ang: -0.7, angJ: 0.9, len: 0.8, wid: 1.05 },
+    wind: { amp: 6, base: 0.25, flutter: 0.45, tremor: 0, pace: 0.8, gustRate: 0.05, gust: 0.5 },
+    fall: 0.4, fallCols: [[246, 180, 192], [214, 150, 100]],
+  },
+  sad: {
+    key: 5, label: "Sad", stage: "petals falling", count: "Blossoms left", hour: "blue dusk, rain",
+    sky: [[116, 126, 154], [148, 156, 176], [178, 180, 190]],
+    sun: [0.3, 0.18], sunCol: [214, 216, 228],
+    light: [214, 216, 230], shadow: [40, 46, 82], bark: [68, 70, 90], haze: [154, 160, 180],
+    trees: [3, 5], size: [0.65, 1], spread: 110, weight: 0.95, maxBranches: 110,
+    flow: { freq: 0.004, amp: 1.3, turn: 0.1, jitter: 0.04, branchP: 0.04, branchAng: [0.4, 0.9], lift: 0.0025, droop: 0.012 },
+    brush: { len: [9, 16], w: [1.8, 3] },
+    fol: { cols: [[200, 196, 216], [180, 180, 208], [158, 150, 182]], bloom: [[232, 228, 238]], bloomP: 0.1,
+           size: [6, 12], tips: 0.55, along: 0.008, maxW: 6, from: 0.3, stretch: 1.5, dabs: 0.65,
+           ang: 1.45, angJ: 0.3, len: 1, wid: 0.85 },
+    wind: { amp: 6, base: 0.2, flutter: 0.4, tremor: 0, pace: 0.5, gustRate: 0.05, gust: 0.6 },
+    fall: 2.6, fallCols: [[226, 222, 234], [200, 196, 216]],
+  },
+  angry: {
+    key: 6, label: "Angry", stage: "bare branches", count: "Remnants", hour: "storm light",
+    sky: [[66, 50, 80], [150, 70, 62], [232, 122, 60]],
+    sun: [0.5, 0.76], sunCol: [255, 150, 60],
+    light: [255, 152, 70], shadow: [30, 20, 52], bark: [44, 30, 44], haze: [172, 92, 80],
+    trees: [3, 5], size: [0.7, 1], spread: 130, weight: 1.35, maxBranches: 100,
+    flow: { freq: 0.008, amp: 2.6, turn: 0.2, jitter: 0.1, branchP: 0.05, branchAng: [0.6, 1.3], lift: 0.003, droop: 0 },
+    brush: { len: [8, 16], w: [2.6, 4.4] },
+    fol: { cols: [[152, 30, 30], [112, 24, 32]], bloom: [[255, 140, 70]], bloomP: 0.1,
+           size: [3, 6], tips: 0.35, along: 0, maxW: 5, from: 0.3, stretch: 1, dabs: 0.8,
+           ang: 0, angJ: 2, len: 0.45, wid: 0.9 },
+    wind: { amp: 11, base: 0.4, flutter: 0.5, tremor: 0.12, pace: 1.3, gustRate: 0.3, gust: 1.4 },
+    fall: 0, gustLeaves: 5, fallCols: [[150, 40, 30], [96, 40, 30], [200, 90, 40]],
+  },
+};
+const ORDER = Object.keys(MOODS).sort((a, b) => MOODS[a].key - MOODS[b].key);
+
+// ---------- helpers ----------
+
+const LH = 1000;                       // the world is 1000 units tall; its width follows the stage
+let LW = 1600;
+const ROOT_Y = 845;   // where the trees are rooted, well below any view
+const TAU = Math.PI * 2;
+const REDUCE = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const seeded = seed => () => {
+  seed = (seed + 0x6D2B79F5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+// Every painting is drawn from a seed, so "Show generation process" can repaint the same picture
+// stroke by stroke. All randomness below goes through random().
+let seed = 0, rng = Math.random;
+const random = () => rng();
+const rand = (a, b) => (b === undefined ? random() * a : a + random() * (b - a));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const pick = arr => arr[(random() * arr.length) | 0];
+const gauss = () => (random() + random() + random() - 1.5) / 1.5;
+const mix = (a, b, t) => a.map((v, k) => Math.round(v + (b[k] - v) * t));
+const avg = cols => cols[0].map((_, k) => Math.round(cols.reduce((s, c) => s + c[k], 0) / cols.length));
+const rgba = (c, a) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+const wrap = d => Math.atan2(Math.sin(d), Math.cos(d));
+// broken colour: every stroke is mixed a little differently on the palette
+const jit = (c, k) => { const l = rand(-k, k) * 0.6; return c.map(v => clamp(Math.round(v + l + rand(-k, k)), 0, 255)); };
+
+// the same Perlin noise as the Organic growth algorithms page; roughly in [-0.7, 0.7]
+const noise2 = (() => {
+  const p = new Uint8Array(512);
+  const perm = [...Array(256).keys()];
+  for (let i = 255; i > 0; i--) { const j = (random() * (i + 1)) | 0; [perm[i], perm[j]] = [perm[j], perm[i]]; }
+  for (let i = 0; i < 512; i++) p[i] = perm[i & 255];
+  const fade = t => t * t * t * (t * (t * 6 - 15) + 10);
+  const lerp = (t, a, b) => a + t * (b - a);
+  const grad = (h, x, y) => {
+    switch (h & 7) {
+      case 0: return x + y; case 1: return -x + y; case 2: return x - y; case 3: return -x - y;
+      case 4: return x; case 5: return -x; case 6: return y; default: return -y;
+    }
+  };
+  return (x, y) => {
+    const X = Math.floor(x) & 255, Y = Math.floor(y) & 255;
+    x -= Math.floor(x); y -= Math.floor(y);
+    const u = fade(x), v = fade(y);
+    const a = p[X] + Y, b = p[X + 1] + Y;
+    return lerp(v, lerp(u, grad(p[a], x, y), grad(p[b], x - 1, y)),
+                   lerp(u, grad(p[a + 1], x, y - 1), grad(p[b + 1], x - 1, y - 1)));
+  };
+})();
+const n01 = (x, y) => clamp((noise2(x, y) + 0.7) / 1.4, 0, 1);
+
+let M;
+const use = id => { M = MOODS[id]; };
+
+// ---------- canvases ----------
+
+const stage = document.getElementById("stage");
+const backCv = document.getElementById("back");
+const treeCv = document.getElementById("trees");
+const fxCv = document.getElementById("fx");
+const lightEl = document.getElementById("light");
+const bctx = backCv.getContext("2d", { willReadFrequently: true });   // the sky's grain is read back once per painting
+const tctx = treeCv.getContext("2d");
+const fctx = fxCv.getContext("2d");
+let S = 1, DPR = 1;   // device pixels per world unit at zoom 1; device pixels per CSS pixel
+
+// The camera: the view's top-left corner in world units, and its zoom.
+const ZOOM = 2.4;
+let CAM = { x: 0, y: 0, z: 1 };
+const VW = () => LW / CAM.z, VH = () => LH / CAM.z;
+const inView = (x, y, m = 0) => x > CAM.x - m && x < CAM.x + VW() + m && y > CAM.y - m && y < CAM.y + VH() + m;
+
+function layout() {
+  DPR = window.devicePixelRatio || 1;
+  const w = stage.clientWidth, h = stage.clientHeight;
+  LW = (LH * w) / h;
+  S = (h * DPR) / LH;
+  for (const cv of [backCv, treeCv, fxCv]) { cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR); }
+  tctx.lineCap = "round";
+  fctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  fctx.lineCap = "round";
+}
+
+// a tile of canvas weave, laid over everything with multiply
+document.getElementById("weave").style.backgroundImage = `url(${(() => {
+  const n = 96, c = document.createElement("canvas");
+  c.width = c.height = n;
+  const x = c.getContext("2d");
+  x.fillStyle = "#fff"; x.fillRect(0, 0, n, n);
+  for (let i = 0; i < n; i += 3) {
+    x.fillStyle = `rgba(90,80,66,${rand(0.05, 0.13)})`; x.fillRect(0, i, n, 1);
+    x.fillStyle = `rgba(90,80,66,${rand(0.05, 0.13)})`; x.fillRect(i, 0, 1, n);
+  }
+  for (let k = 0; k < 700; k++) { x.fillStyle = `rgba(70,60,50,${rand(0.04, 0.14)})`; x.fillRect(rand(n), rand(n), 1, 1); }
+  return c.toDataURL();
+})()})`;
+
+// ---------- the stroke ----------
+// One loaded stroke of oil: a short round-ended mark, then the ridge of paint along it, which catches
+// the light on its upper-left edge and falls into shadow on the other. flat strokes skip the ridge.
+
+// Leaves, blossoms and buds can instead be laid on as round dabs: a circle as wide as the long stroke,
+// its paint ridge a small catch of light up-left and a shadow down-right.
+let ROUND = true;
+
+function dab(c, d) {
+  if (d.leaf && ROUND) {
+    const [r, g, b] = d.c, rad = d.w / 2;
+    c.fillStyle = `rgba(${r},${g},${b},${d.al})`;
+    c.beginPath(); c.arc(d.x, d.y, rad, 0, TAU); c.fill();
+    if (d.w < 1.6) return;
+    c.fillStyle = `rgba(${Math.min(255, r + 40)},${Math.min(255, g + 38)},${Math.min(255, b + 34)},${0.4 * d.al})`;
+    c.beginPath(); c.arc(d.x - rad * 0.3, d.y - rad * 0.38, rad * 0.34, 0, TAU); c.fill();
+    c.fillStyle = `rgba(${(r * 0.72) | 0},${(g * 0.72) | 0},${(b * 0.76) | 0},${0.3 * d.al})`;
+    c.beginPath(); c.arc(d.x + rad * 0.32, d.y + rad * 0.36, rad * 0.3, 0, TAU); c.fill();
+    return;
+  }
+  const ca = Math.cos(d.a) * d.len * 0.5, sa = Math.sin(d.a) * d.len * 0.5;
+  const [r, g, b] = d.c;
+  c.lineWidth = d.w;
+  c.strokeStyle = `rgba(${r},${g},${b},${d.al})`;
+  c.beginPath(); c.moveTo(d.x - ca, d.y - sa); c.lineTo(d.x + ca, d.y + sa); c.stroke();
+  if (d.flat || d.w < 1.6) return;
+  let nx = -Math.sin(d.a), ny = Math.cos(d.a);
+  if (nx * -0.6 + ny * -0.8 < 0) { nx = -nx; ny = -ny; }
+  const o = d.w * 0.3;
+  c.lineWidth = d.w * 0.28;
+  c.strokeStyle = `rgba(${Math.min(255, r + 40)},${Math.min(255, g + 38)},${Math.min(255, b + 34)},${0.4 * d.al})`;
+  c.beginPath(); c.moveTo(d.x - ca * 0.75 + nx * o, d.y - sa * 0.75 + ny * o); c.lineTo(d.x + ca * 0.6 + nx * o, d.y + sa * 0.6 + ny * o); c.stroke();
+  c.strokeStyle = `rgba(${(r * 0.72) | 0},${(g * 0.72) | 0},${(b * 0.76) | 0},${0.3 * d.al})`;
+  c.beginPath(); c.moveTo(d.x - ca * 0.6 - nx * o, d.y - sa * 0.6 - ny * o); c.lineTo(d.x + ca * 0.8 - nx * o, d.y + sa * 0.8 - ny * o); c.stroke();
+}
+
+// ---------- the scene ----------
+// Everything is decided before painting starts: the trees are grown whole, a camera frames part of the
+// crown, and then every stroke inside the frame is laid out, stamped with the step of growth it
+// belongs to.
+
+const STEP = 3;   // world units an agent moves per step
+const BZ = 0.65;  // strokes are a little finer than the landscape's, since the camera magnifies them
+
+function setCamera(cam) {
+  CAM = cam;
+  const z = S * cam.z;
+  tctx.setTransform(z, 0, 0, z, -cam.x * z, -cam.y * z);
+}
+
+// Slide a zoomed view over the crowns and keep one of the fullest: many clumps and side branches,
+// not too much trunk, and never low enough to show where the trees are rooted.
+function frameCamera(segs, clumps) {
+  const z = ZOOM, vw = LW / z, vh = LH / z, yMax = Math.max(0, ROOT_Y - 160 - vh);
+  const branch = segs.filter((s, i) => s.depth >= 1 && i % 3 === 0), trunk = segs.filter(s => s.depth === 0);
+  const count = (pts, x, y) => pts.reduce((n, p) => n + (p.x > x + vw * 0.06 && p.x < x + vw * 0.94 && p.y > y + vh * 0.06 && p.y < y + vh * 0.94), 0);
+  const views = [];
+  for (let x = 0; x <= LW - vw + 1; x += vw / 6)
+    for (let y = 0; y <= yMax + 1; y += vh / 6) {
+      const pt = s => ({ x: s.x1, y: s.y1 });
+      const n = count(clumps, x, y) * 3 + count(branch.map(pt), x, y) - count(trunk.map(pt), x, y) * 0.5;
+      views.push({ x: Math.min(x, LW - vw), y: Math.min(y, yMax), z, n });
+    }
+  const best = Math.max(...views.map(v => v.n));
+  return pick(views.filter(v => v.n >= best * 0.85));
+}
+
+function buildScene() {
+  // a lit stroke turns towards the light's colour, a shaded one towards the cool shadow colour
+  const shade = (c, f) => (f >= 0 ? mix(c, M.light, Math.min(1, f) * 0.6) : mix(c, M.shadow, Math.min(1, -f) * 0.62));
+  const BR = { len: M.brush.len.map(v => v * BZ), w: M.brush.w.map(v => v * BZ) };
+  const T = [];
+
+  // ---- the trees: the flow-field algorithm ----
+  const F = M.flow;
+  let n = M.trees[0] + Math.floor(rand(M.trees[1] - M.trees[0] + 1));
+  n = clamp(Math.round(n * Math.min(1, LW / 1300)), 2, n);
+  const xs = [];
+  if (M.even) for (let i = 0; i < n; i++) xs.push(LW * (0.12 + (0.76 * (i + 0.5)) / n) + rand(-0.025, 0.025) * LW);
+  else for (let i = 0; i < n; i++) {
+    let best = null, bestD = -1;
+    for (let k = 0; k < 40; k++) {
+      const x = rand(0.1, 0.9) * LW, d = Math.min(Infinity, ...xs.map(v => Math.abs(v - x)));
+      if (d > bestD) { best = x; bestD = d; }
+    }
+    xs.push(best);
+  }
+  const trees = xs.map(x => {
+    const far = M.even ? rand(0, 0.2) : rand(0, 1);
+    const scale = M.size[1] - (M.size[1] - M.size[0]) * far;
+    return { x, far, scale, w0: 32 * scale * M.weight, H: (ROOT_Y - 40) * scale, branches: 0 };
+  }).sort((a, b) => b.far - a.far);   // far trees first, so near ones are painted over them
+
+  // each agent loses width at a rate that lets the trunk, splitting as it goes, just reach the tree's height
+  const fx = rand(100), fy = rand(100);
+  let agents = [];
+  trees.forEach((tr, k) => {
+    tr.start = k * 22;
+    const nb = tr.H / (STEP * (14 + 1 / F.branchP));
+    tr.decay = Math.pow((0.6 / tr.w0) / 0.85 ** nb, STEP / tr.H);
+    agents.push({ tr, x: tr.x, y: ROOT_Y, a: -Math.PI / 2 + rand(-0.06, 0.06), base: -Math.PI / 2, w: tr.w0, age: 0, depth: 0 });
+  });
+  const segs = [], tips = [];
+  for (let t = 0; agents.length && t < 4000; t++) {
+    const next = [];
+    for (const g of agents) {
+      const tr = g.tr;
+      if (t < tr.start) { next.push(g); continue; }
+      const nz = noise2(g.x * F.freq + fx, g.y * F.freq + fy);
+      g.base += wrap(-Math.PI / 2 - g.base) * F.lift;
+      if (F.droop && g.depth) g.base += wrap(Math.PI / 2 - g.base) * F.droop * Math.min(1, g.depth * 0.6);
+      g.base += clamp((tr.x - g.x) / M.spread, -4, 4) * 0.004;
+      if (g.x < 50) g.base += 0.02; else if (g.x > LW - 50) g.base -= 0.02;   // steer away from the sides
+      const target = g.base + nz * F.amp;
+      g.a += (target - g.a) * F.turn + rand(-F.jitter, F.jitter);
+      const x = g.x + Math.cos(g.a) * STEP, y = g.y + Math.sin(g.a) * STEP;
+      segs.push({ x0: g.x, y0: g.y, x1: x, y1: y, a: g.a, w: g.w, t, depth: g.depth, tr });
+      g.x = x; g.y = y; g.w *= g.depth ? tr.decay : tr.decay ** 0.55; g.age++;   // the trunk keeps its girth longer
+      if (g.w < 0.55 || x < 2 || x > LW - 2 || y < 2 || y > LH) { tips.push({ x, y, t, tr }); continue; }
+      if (g.age > 14 && random() < F.branchP && tr.branches < M.maxBranches) {
+        const s = random() < 0.5 ? 1 : -1;
+        tr.branches++;
+        next.push({ tr, x, y, a: g.a + s * rand(...F.branchAng), base: g.base + s * rand(...F.branchAng) * 1.1, w: g.w * 0.72, age: 0, depth: g.depth + 1 });
+        g.w *= g.depth ? 0.85 : 0.93; g.base -= s * 0.15; g.age = 0;
+      }
+      next.push(g);
+    }
+    agents = next;
+  }
+
+  // clumps: at branch tips and here and there along the branches, twice the mood's density. Each has
+  // a fixed rank, and the count slider shows those ranked below it, so moving it never changes the tree.
+  const FL = M.fol, clumps = [];
+  for (const s of tips) if (random() < Math.min(1, FL.tips * 2)) clumps.push(s);
+  for (const s of segs) {
+    const h = (ROOT_Y - s.y1) / s.tr.H;
+    if (s.w <= FL.maxW * s.tr.scale && h > FL.from && random() < FL.along * 2) clumps.push({ x: s.x1, y: s.y1, t: s.t, tr: s.tr });
+  }
+  for (const cl of clumps) { cl.R = rand(...FL.size) * (0.6 + 0.4 * cl.tr.scale); cl.rank = random(); }
+
+  // frame the crown; the sun sits where the mood puts it in that frame
+  const cam = frameCamera(segs, clumps);
+  setCamera(cam);
+  const sun = { x: cam.x + M.sun[0] * VW(), y: cam.y + M.sun[1] * VH() };
+  const toSun = (x, y) => { const dx = sun.x - x, dy = sun.y - y, m = Math.hypot(dx, dy) || 1; return [dx / m, dy / m]; };
+
+  // branches: a mid-tone underlayer drawn along the stem, then strokes across its width shaded by
+  // which side faces the sun. Twigs are a single thin stroke.
+  for (const s of segs) {
+    if (!inView(s.x1, s.y1, s.w + 20)) continue;
+    const tr = s.tr, mx = (s.x0 + s.x1) / 2, my = (s.y0 + s.y1) / 2, haze = tr.far * 0.45;
+    if (s.w < 2) {
+      const f = (-Math.sin(s.a) * (sun.x - mx) + Math.cos(s.a) * (sun.y - my) > 0 ? 0.35 : -0.35) + rand(-0.3, 0.3);
+      T.push({ x: mx, y: my, a: s.a + gauss() * 0.1, len: STEP * rand(1.5, 2.4), w: Math.max(0.8, s.w) * rand(0.85, 1.25),
+               c: mix(shade(jit(M.bark, 16), f), M.haze, haze), al: rand(0.7, 0.95), t: s.t, flat: true });
+      continue;
+    }
+    const nx = -Math.sin(s.a), ny = Math.cos(s.a), [sx, sy] = toSun(mx, my);
+    const facing = nx * sx + ny * sy;
+    // the underlayer is itself broken: each step a slightly different mix, width and opacity
+    T.push({ x: mx, y: my, a: s.a, len: STEP * 1.6, w: s.w * rand(0.8, 0.95), c: mix(shade(jit(M.bark, 14), rand(-0.35, 0.05)), M.haze, haze), al: rand(0.8, 1), t: s.t, flat: true });
+    const k = Math.max(1, Math.round(s.w / 2.4));
+    const p = Math.min(1, STEP / clamp(s.w * 0.22, 1.6, 5));
+    for (let j = 0; j < k; j++) {
+      if (random() > p) continue;
+      const o = -1 + (2 * j + 1) / k + rand(-0.35, 0.35) / k;
+      const f = facing * Math.sign(o) * Math.abs(o) ** 0.6 + rand(-0.15, 0.15);
+      T.push({ x: mx + nx * o * s.w * 0.5, y: my + ny * o * s.w * 0.5, a: s.a + gauss() * 0.18,
+               len: rand(...BR.len) * (0.7 + 0.5 * Math.min(1, s.w / 12)), w: clamp((s.w / k) * 1.6, 1.2, BR.w[1] * 1.2),
+               c: mix(shade(jit(M.bark, 12), f * 1.2), M.haze, haze), al: rand(0.82, 0.96), t: s.t + rand(0.1, 2) });
+    }
+  }
+
+  // Within a clump the strokes go on dark to light, as a painter builds them up, and each is shaded
+  // by where it sits towards the sun.
+  const shown = clumps.filter(cl => inView(cl.x, cl.y, cl.R * 2.5));
+  for (const cl of shown) {
+    const tr = cl.tr, R = cl.R;
+    const nd = Math.max(3, Math.round(((R * R * FL.stretch) / 10) * FL.dabs));
+    const [sx, sy] = toSun(cl.x, cl.y);
+    const lift = clamp((ROOT_Y - cl.y) / tr.H, 0, 1) * 0.25 - 0.1;   // higher leaves catch more light
+    const t0 = cl.t + rand(6, 30);
+    const ds = [];
+    for (let k = 0; k < nd; k++) {
+      const gx = gauss() * R, gy = gauss() * R * FL.stretch;
+      const f = clamp((gx * sx + gy * sy) / R, -1, 1) * 1.25 + lift + rand(-0.15, 0.15);
+      let c = random() < FL.bloomP ? mix(pick(FL.bloom), M.light, Math.max(0, f) * 0.3) : shade(jit(pick(FL.cols), 14), f);
+      c = mix(c, M.haze, tr.far * 0.4);
+      ds.push({ f, x: cl.x + gx, y: cl.y + gy - R * 0.15, a: FL.ang + gauss() * FL.angJ, len: rand(...M.brush.len) * FL.len * 0.9, w: rand(...M.brush.w) * FL.wid * 1.1, c, al: rand(0.8, 0.95), leaf: true, cl });
+    }
+    ds.sort((a, b) => a.f - b.f).forEach((d, k) => { d.t = t0 + (k / nd) * 24; T.push(d); });
+  }
+
+  T.sort((a, b) => a.t - b.t);
+  return { T, segs, clumps: shown };
+}
+
+// the sky: a gradient across the frame with a fine grain over it, like paint on a primed canvas
+function paintSky() {
+  const W = backCv.width, H = backCv.height;
+  bctx.setTransform(1, 0, 0, 1, 0, 0);
+  const g = bctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, rgba(M.sky[0], 1));
+  g.addColorStop(0.55, rgba(M.sky[1], 1));
+  g.addColorStop(1, rgba(M.sky[2], 1));
+  bctx.fillStyle = g;
+  bctx.fillRect(0, 0, W, H);
+  // grain: mostly light and dark, with a little colour in it
+  const img = bctx.getImageData(0, 0, W, H), d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const v = (random() - 0.5) * 20;
+    d[i] += v + (random() - 0.5) * 6; d[i + 1] += v + (random() - 0.5) * 6; d[i + 2] += v + (random() - 0.5) * 6;
+  }
+  bctx.putImageData(img, 0, 0);
+}
+
+// ---------- wind ----------
+// No longer bends the trees: it only carries the falling petals and paces the light.
+
+const wind = { lean: 0, gust: 0, gustT0: 0, gustDur: 0, gustStr: 0, nextGust: 0, t: 0 };
+function updateWind(now, dt) {
+  const W = M.wind;
+  wind.t += dt * W.pace;
+  if (now > wind.nextGust) {
+    wind.gustT0 = now; wind.gustDur = rand(1200, 3200) / W.pace; wind.gustStr = W.gust * rand(0.5, 1);
+    wind.nextGust = now + wind.gustDur + (-Math.log(1 - random()) / W.gustRate) * 1000;
+  }
+  const g = clamp((now - wind.gustT0) / wind.gustDur, 0, 1);
+  wind.gust = wind.gustStr * Math.sin(Math.PI * g) ** 2;
+  wind.lean = W.base * (0.6 + 0.8 * n01(wind.t * 0.25, 3.7)) + wind.gust;
+}
+
+// ---------- falling petals and leaves ----------
+// Small loose strokes of colour, in CSS pixels on the fx canvas, carried by the same wind.
+
+let falling = [], fallAcc = 0, clumps = [];
+const cssX = x => (x - CAM.x) * CAM.z * stage.clientHeight / LH, cssY = y => (y - CAM.y) * CAM.z * stage.clientHeight / LH;
+function spawnFleck(fromEdge) {
+  const c = pick(M.fallCols);
+  if (fromEdge) {
+    falling.push({ x: -20, y: rand(stage.clientHeight * 0.75), vx: rand(80, 160), vy: rand(10, 40), s: rand(3, 6), c, rot: rand(TAU), vr: rand(-4, 4), ph: rand(TAU), torn: true });
+    return;
+  }
+  if (!clumps.length) return;
+  const cl = pick(clumps);
+  falling.push({ x: cssX(cl.x + gauss() * cl.R), y: cssY(cl.y + gauss() * cl.R), vx: 0, vy: rand(12, 30), s: rand(2.5, 4.5), c,
+                 rot: rand(TAU), vr: rand(-1.6, 1.6), ph: rand(TAU), torn: false });
+}
+
+function drawFlecks(dt) {
+  const w = stage.clientWidth, h = stage.clientHeight, W = M.wind;
+  fctx.clearRect(0, 0, w, h);
+  const push = wind.lean * 70 * W.amp / 6;
+  falling = falling.filter(p => {
+    p.ph += dt * rand(2, 3.2);
+    p.vx += (push - p.vx) * Math.min(1, dt * (p.torn ? 2 : 0.8));
+    p.vy += ((p.torn ? 30 : 34) - p.vy) * Math.min(1, dt * 0.6);
+    p.x += (p.vx + Math.sin(p.ph) * 14) * dt;
+    p.y += (p.vy + Math.cos(p.ph * 0.7) * 6) * dt;
+    p.rot += p.vr * dt;
+    if (p.y > h + 20 || p.x > w + 30 || p.x < -40) return false;
+    const l = p.s * (0.4 + 0.6 * Math.abs(Math.cos(p.ph)));
+    const ca = Math.cos(p.rot) * l, sa = Math.sin(p.rot) * l;
+    if (ROUND) {
+      fctx.fillStyle = rgba(p.c, 0.9);
+      fctx.beginPath(); fctx.arc(p.x, p.y, p.s * 0.375, 0, TAU); fctx.fill();
+    } else {
+      fctx.lineWidth = p.s * 0.75;
+      fctx.strokeStyle = rgba(p.c, 0.9);
+      fctx.beginPath(); fctx.moveTo(p.x - ca, p.y - sa); fctx.lineTo(p.x + ca, p.y + sa); fctx.stroke();
+    }
+    return true;
+  });
+}
+
+// ---------- light ----------
+// The sun's colour, over everything in soft-light. Once the painting is done it comes and goes, as if
+// clouds were crossing the sun.
+
+function setLight() {
+  const x = M.sun[0] * 100, y = M.sun[1] * 100;
+  lightEl.style.background = `radial-gradient(ellipse 70% 80% at ${x}% ${y}%, ${rgba(M.sunCol, 0.75)}, ${rgba(M.sunCol, 0)} 72%)`;
+  lightEl.style.opacity = 0.7;
+}
+
+// ---------- timeline ----------
+// the sky's gradient → the branches grow, strokes laid on as each branch reaches the frame, clumps
+// built dark to light → the wind. Strokes outside the frame are skipped, and the clock starts just
+// before the first brush enters it. Clicking the stage while it is still being
+// painted finishes the painting at once.
+
+const SUB = 2;   // growth steps per frame: slower than a whole tree, since the camera magnifies every stroke
+let run = 0, finishRun = -1;
+const countIn = document.getElementById("count");
+const countOut = document.getElementById("countOut");
+const countLabel = document.getElementById("countLabel");
+const amount = () => +countIn.value / 100;
+let scene = null, paintedAmount = 0.5;
+const visibleAt = a => (scene ? scene.clumps.filter(cl => cl.rank < a) : []);
+
+// Paints instantly by default. `animate` shows the generation process; `fresh` rolls a new picture,
+// otherwise the current one is painted again from its seed.
+function paint({ animate = false, fresh = true } = {}) {
+  const id = ++run;
+  if (fresh) seed = (Math.random() * 4294967296) | 0;
+  rng = seeded(seed);
+  if (!animate) finishRun = id;
+  if (!stage.clientWidth || !stage.clientHeight) return;
+  stage.classList.remove("done");
+  falling = []; clumps = []; scene = null;
+  layout();
+  fctx.clearRect(0, 0, stage.clientWidth, stage.clientHeight);
+  tctx.save(); tctx.setTransform(1, 0, 0, 1, 0, 0); tctx.clearRect(0, 0, treeCv.width, treeCv.height); tctx.restore();
+  const sc = scene = buildScene();
+  paintSky();
+  setLight();
+  if (fresh) countIn.value = "50";   // a new painting opens at the mood's own density
+  paintedAmount = amount();
+  countLabel.textContent = M.count;
+  countOut.value = String(visibleAt(paintedAmount).length);
+
+  const { T } = sc;
+  let ti = 0, growth = T.length ? T[0].t - 2 : 0;
+  const step = () => {
+    if (ti < T.length) {
+      growth += SUB;
+      for (; ti < T.length && T[ti].t <= growth; ti++) if (!T[ti].cl || T[ti].cl.rank < paintedAmount) dab(tctx, T[ti]);
+      return true;
+    }
+    return false;
+  };
+
+  const finished = () => {
+    stage.classList.add("done");
+    if (paintedAmount !== amount()) repaintTrees();   // the slider moved while the painting was being skipped
+    clumps = visibleAt(paintedAmount);
+    if (REDUCE) return;
+    const start = performance.now();
+    let last = start;
+    wind.nextGust = start + rand(1500, 4000); wind.gustDur = 1; wind.gustT0 = -1e9;
+    (function blow(now) {
+      if (id !== run) return;
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      updateWind(now, dt);
+      const rise = clamp((now - start) / 2500, 0, 1);
+      // the light breathes as clouds pass, a little faster in gusty moods
+      lightEl.style.opacity = (0.45 + 0.55 * n01(wind.t * 0.18, 9.1) * rise + 0.3 * (1 - rise)).toFixed(3);
+      fallAcc += dt * (M.fall * (0.6 + wind.gust) + (M.gustLeaves || 0) * wind.gust ** 2) * rise;
+      while (fallAcc >= 1) { fallAcc -= 1; spawnFleck(!!M.gustLeaves); }
+      drawFlecks(dt);
+      requestAnimationFrame(blow);
+    })(start);
+  };
+
+  (function tick() {
+    if (id !== run) return;
+    if (finishRun === id) { while (step()); finished(); return; }
+    if (step()) requestAnimationFrame(tick); else finished();
+  })();
+}
+
+// The count slider repaints the trees over the same sky with more or fewer clumps; everything else
+// stays exactly as it was. While a painting is still being shown, moving it finishes the painting.
+// More: only the newly shown clumps are painted, on top. Fewer: the trees are repainted without them.
+function repaintTrees() {
+  if (!scene) return;
+  const from = paintedAmount;
+  paintedAmount = amount();
+  if (paintedAmount > from) {
+    for (const d of scene.T) if (d.cl && d.cl.rank >= from && d.cl.rank < paintedAmount) dab(tctx, d);
+  } else {
+    tctx.save(); tctx.setTransform(1, 0, 0, 1, 0, 0); tctx.clearRect(0, 0, treeCv.width, treeCv.height); tctx.restore();
+    for (const d of scene.T) if (!d.cl || d.cl.rank < paintedAmount) dab(tctx, d);
+  }
+  clumps = visibleAt(paintedAmount);
+  countOut.value = String(clumps.length);
+}
+
+let countQueued = false;
+countIn.addEventListener("input", () => {
+  countOut.value = String(visibleAt(amount()).length);
+  if (!stage.classList.contains("done")) { finishRun = run; return; }
+  if (countQueued) return;
+  countQueued = true;
+  requestAnimationFrame(() => { countQueued = false; repaintTrees(); });
+});
+
+// clicking the painting skips ahead to the finished picture; it never starts a new one
+stage.addEventListener("click", e => { if (!e.target.closest("button, a, label, input")) finishRun = run; });
+
+// ---------- mood buttons and keys ----------
+
+const bar = document.getElementById("moods");
+const buttons = {};
+for (const id of ORDER) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = MOODS[id].label;
+  b.title = `${MOODS[id].stage}, ${MOODS[id].hour}`;
+  b.setAttribute("aria-pressed", "false");
+  b.setAttribute("aria-keyshortcuts", String(MOODS[id].key));
+  b.addEventListener("click", () => setMood(id));
+  bar.appendChild(b);
+  buttons[id] = b;
+}
+
+function setMood(id) {
+  if (!MOODS[id]) return;
+  use(id);
+  for (const k of ORDER) buttons[k].setAttribute("aria-pressed", String(k === id));
+  try { history.replaceState(null, "", "#" + id); } catch (_) {}
+  paint();
+}
+
+addEventListener("keydown", e => {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.("input, textarea, select")) return;
+  if (e.key === "d" || e.key === "D") { setShape(!ROUND); return; }
+  const id = ORDER.find(k => String(MOODS[k].key) === e.key);
+  if (id) setMood(id);
+});
+
+document.getElementById("again").onclick = () => paint({ animate: true, fresh: false });
+
+// the dab shape: switching repaints the same picture, only the leaves' strokes change
+const roundIn = document.getElementById("round");
+roundIn.checked = ROUND;
+function setShape(round) {
+  roundIn.checked = round;
+  if (round === ROUND) return;
+  ROUND = round;
+  paint({ fresh: false });
+}
+roundIn.addEventListener("change", () => setShape(roundIn.checked));
+// the words on either side pick their own side, rather than flipping the switch
+for (const [sel, round] of [[".switch .off", false], [".switch .on", true]])
+  document.querySelector(sel).addEventListener("click", e => { e.preventDefault(); setShape(round); });
+let lastW = innerWidth, lastH = innerHeight;
+addEventListener("resize", () => {
+  if (Math.abs(innerWidth - lastW) + Math.abs(innerHeight - lastH) < 60) return;
+  lastW = innerWidth; lastH = innerHeight;
+  paint({ fresh: false });
+});
+
+setMood(MOODS[location.hash.slice(1)] ? location.hash.slice(1) : "calm");
+})();
+</script>
+</body>
+</html>

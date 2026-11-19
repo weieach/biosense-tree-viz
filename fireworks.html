@@ -5,18 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Firework Tree</title>
 <link rel="stylesheet" href="/nav.css">
+<script>if (self !== top) document.documentElement.classList.add("in-frame");</script>
 <style>
   :root {
     --night: #000;
     --ink: #ece9f4;
     --muted: #8a879f;
     --line: rgba(255, 255, 255, 0.08);
-    /* the scene is always night, so the global nav goes dark with it */
-    --nav-bg: var(--night);
-    --nav-ink: var(--ink);
-    --nav-muted: var(--muted);
-    --nav-line: var(--line);
-    --nav-active: rgba(255, 255, 255, 0.09);
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
@@ -57,17 +52,12 @@
 </head>
 <body>
 <nav class="gnav">
-  <a class="gnav-brand" href="/">BioSense - Nicole (11/4)</a>
-  <div class="gnav-tabs">
-    <a href="/organic-algorithms.html">Tree algorithms</a>
-    <a href="/sakura.html">Sakura</a>
-    <a href="/meteor-light.html">Meteor light</a>
-    <a href="/fireworks.html" aria-current="page">Fireworks</a>
-  </div>
+  <a class="gnav-back" href="/#v1" aria-label="Back to V1 Tree algo &amp; visualization sketches"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>Back</a>
+  <button id="again" class="gnav-action" type="button"><svg class="play" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2v7.6a.6.6 0 0 0 .9.5l6.2-3.8a.6.6 0 0 0 0-1L2.9.7a.6.6 0 0 0-.9.5z"/></svg>Show generation process</button>
+  <a class="gnav-brand" href="/">Biosense - tree visuals iteration</a>
 </nav>
 <div class="stage" id="stage"><canvas id="cv"></canvas></div>
 <div class="controls">
-  <button id="again"><svg class="play" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2v7.6a.6.6 0 0 0 .9.5l6.2-3.8a.6.6 0 0 0 0-1L2.9.7a.6.6 0 0 0-.9.5z"/></svg>Replay growth</button>
   <span>Click the background to launch a firework</span>
 </div>
 
@@ -589,7 +579,7 @@ function frame(dt) {
 }
 
 // Clear every crown and rocket, then grow the tree again from the root. The first call (or a
-// resize) builds the tree; the button replays the same tree's growth.
+// resize) builds the tree, which start() shows fully grown; the button replays the same tree's growth.
 function reset(rebuild = false) {
   for (const c of crowns) c.tip.busy = false;
   for (const r of rockets) r.tip.busy = false;
@@ -610,6 +600,8 @@ function tick(now) {
 function start() {
   if (!resize()) return;   // hidden or zero-size frame: wait for a resize
   reset(true);
+  // a new tree appears fully grown; "Show generation process" replays its growth
+  growDist = tree.depth; tree.grown = true;
   if (running) return;
   running = true;
   last = performance.now();
@@ -624,7 +616,10 @@ addEventListener("resize", () => {
 });
 document.getElementById("again").onclick = () => { if (running) reset(); };
 cv.addEventListener("click", () => {
-  if (!running || !tree.grown || !canLaunch()) return;
+  if (!running) return;
+  // while the tree is still growing, a click skips to the grown tree
+  if (!tree.grown) { growDist = tree.depth; tree.grown = true; return; }
+  if (!canLaunch()) return;
   trySend();
 });
 

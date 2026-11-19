@@ -5,18 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Meteor Light</title>
 <link rel="stylesheet" href="/nav.css">
+<script>if (self !== top) document.documentElement.classList.add("in-frame");</script>
 <style>
   :root {
     --night: #000;
     --ink: #e6ecff;
     --muted: #8590b4;
     --line: rgba(150, 175, 255, 0.14);
-    /* the scene is always night, so the global nav goes dark with it */
-    --nav-bg: var(--night);
-    --nav-ink: var(--ink);
-    --nav-muted: var(--muted);
-    --nav-line: var(--line);
-    --nav-active: rgba(160, 185, 255, 0.12);
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
@@ -60,19 +55,14 @@
 </head>
 <body>
 <nav class="gnav">
-  <a class="gnav-brand" href="/">BioSense - Nicole (11/4)</a>
-  <div class="gnav-tabs">
-    <a href="/organic-algorithms.html">Tree algorithms</a>
-    <a href="/sakura.html">Sakura</a>
-    <a href="/meteor-light.html" aria-current="page">Meteor light</a>
-    <a href="/fireworks.html">Fireworks</a>
-  </div>
+  <a class="gnav-back" href="/#v1" aria-label="Back to V1 Tree algo &amp; visualization sketches"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>Back</a>
+  <button id="again" class="gnav-action" type="button"><svg class="play" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2v7.6a.6.6 0 0 0 .9.5l6.2-3.8a.6.6 0 0 0 0-1L2.9.7a.6.6 0 0 0-.9.5z"/></svg>Show generation process</button>
+  <a class="gnav-brand" href="/">Biosense - tree visuals iteration</a>
 </nav>
 <div class="stage" id="stage">
   <canvas id="sky" aria-label="A tree drawn in light whose leaves are sparkling stars that fall as meteors"></canvas>
 </div>
 <div class="controls">
-  <button id="again"><svg class="play" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2v7.6a.6.6 0 0 0 .9.5l6.2-3.8a.6.6 0 0 0 0-1L2.9.7a.6.6 0 0 0-.9.5z"/></svg>Replay growth</button>
   <button id="shower"><svg class="play" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2v7.6a.6.6 0 0 0 .9.5l6.2-3.8a.6.6 0 0 0 0-1L2.9.7a.6.6 0 0 0-.9.5z"/></svg>Play leaf falling</button>
   <span id="status">Hover &amp; click on the branches to see effects</span>
 </div>
@@ -642,7 +632,7 @@ function drawFalling(l, dt) {
 // ---------- loop ----------
 
 let T = 0, last = 0, frozen = false, run = 0, pulseAcc = 0, wasShaking = false;
-// `fresh` grows a new tree (on load and resize); without it the current tree replays its growth.
+// `fresh` grows a new tree (on load and resize), shown fully grown; without it the current tree replays its growth.
 function start(fresh = true) {
   if (!stage.clientWidth || !stage.clientHeight) return;
   run++;
@@ -659,9 +649,16 @@ function start(fresh = true) {
   shake = null; wasShaking = false;
   for (const seg of segs) seg.M = null;
   T = 0; frozen = false;
+  // a new tree appears fully grown; "Show generation process" replays its growth
+  if (fresh) skipGrowth();
   last = performance.now();
   const id = run;
   requestAnimationFrame(now => frame(now, id));
+}
+
+function skipGrowth() {
+  T = Math.max(T, treeEnd + 0.06);
+  for (const l of leaves) if (l.state === "wait") { l.state = "live"; l.alpha = 1; l.glint = 0; }
 }
 
 function frame(now, id) {
@@ -785,6 +782,8 @@ function toLogical(e) {
 cv.addEventListener("pointermove", e => Object.assign(ptr, toLogical(e)));
 cv.addEventListener("pointerleave", () => { ptr.x = ptr.y = -1e9; });
 cv.addEventListener("pointerdown", e => {
+  // while the tree is still growing, a click skips to the grown tree
+  if (!frozen) { skipGrowth(); return; }
   const p = toLogical(e), R = 130 * K;
   // shake the tree from the ground, swaying away from the side that was clicked
   shake = { t0: T, dir: p.x < baseX ? 1 : -1 };

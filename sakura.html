@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ink Sakura</title>
 <link rel="stylesheet" href="/nav.css">
+<script>if (self !== top) document.documentElement.classList.add("in-frame");</script>
 <style>
   :root {
     --paper: #eeede9;
@@ -48,20 +49,15 @@
 </head>
 <body>
 <nav class="gnav">
-  <a class="gnav-brand" href="/">BioSense - Nicole (11/4)</a>
-  <div class="gnav-tabs">
-    <a href="/organic-algorithms.html">Tree algorithms</a>
-    <a href="/sakura.html" aria-current="page">Sakura</a>
-    <a href="/meteor-light.html">Meteor light</a>
-    <a href="/fireworks.html">Fireworks</a>
-  </div>
+  <a class="gnav-back" href="/#v1" aria-label="Back to V1 Tree algo &amp; visualization sketches"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>Back</a>
+  <button id="again" class="gnav-action" type="button"><svg class="play" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2v7.6a.6.6 0 0 0 .9.5l6.2-3.8a.6.6 0 0 0 0-1L2.9.7a.6.6 0 0 0-.9.5z"/></svg>Show generation process</button>
+  <a class="gnav-brand" href="/">Biosense - tree visuals iteration</a>
 </nav>
 <div class="stage" id="stage">
   <canvas id="paper"></canvas>
   <canvas id="ink"></canvas>
 </div>
 <div class="controls">
-  <button id="again">Paint again</button>
   <span id="status"></span>
 </div>
 
@@ -75,15 +71,25 @@ const PINK = "244,228,224";     // petal body
 const BLUSH = "228,190,186";    // where the wash first pools
 const ROSE = [192, 140, 136];   // wet edge, before mixing with branch ink
 const INK_RGB = INK.split(",").map(Number), PAPER_RGB = [238, 237, 233];
-const rand = (a, b) => (b === undefined ? Math.random() * a : a + Math.random() * (b - a));
+const seeded = seed => () => {
+  seed = (seed + 0x6D2B79F5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+// Every painting is drawn from a seed, so "Show generation process" can repaint the same picture
+// stroke by stroke. All randomness below goes through random().
+let seed = 0, rng = Math.random;
+const random = () => rng();
+const rand = (a, b) => (b === undefined ? random() * a : a + random() * (b - a));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const pick = arr => arr[(Math.random() * arr.length) | 0];
-const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;
+const pick = arr => arr[(random() * arr.length) | 0];
+const gauss = () => (random() + random() + random() - 1.5) / 1.5;
 
 // Smooth value noise in [0, 1], used for paper grain and brush wobble.
 const vnoise = (() => {
   const P = new Float32Array(1024);
-  for (let i = 0; i < 1024; i++) P[i] = Math.random();
+  for (let i = 0; i < 1024; i++) P[i] = random();
   const h = (x, y) => P[(((x * 73856093) ^ (y * 19349663)) >>> 0) & 1023];
   const s = t => t * t * (3 - 2 * t);
   return (x, y) => {
@@ -134,7 +140,7 @@ function paintPaper() {
   }
   const img = pctx.getImageData(0, 0, paperCv.width, paperCv.height), d = img.data;
   for (let i = 0; i < d.length; i += 4) {
-    const n = (Math.random() - 0.5) * 7;
+    const n = (random() - 0.5) * 7;
     d[i] += n; d[i + 1] += n; d[i + 2] += n;
   }
   pctx.putImageData(img, 0, 0);
@@ -205,16 +211,16 @@ function buildScene() {
     const n = s.pts.length;
     const gap = s.depth === 1 ? [40, 75] : [22, 44];
     let i = Math.round((rand(...gap) * K) / DL) + 4;
-    let side = Math.random() < 0.5 ? 1 : -1;
+    let side = random() < 0.5 ? 1 : -1;
     while (i < n - 4) {
       const { p, a } = at(s, i);
       const start = s.start + i / SPEED + rand(2, 10);
       side = -side;
-      if (s.depth === 1 && Math.random() < 0.75) {
+      if (s.depth === 1 && random() < 0.75) {
         add({ x: p.x, y: p.y, a: a + side * rand(0.35, 0.9), w0: p.w * rand(0.45, 0.65),
               len: rand(150, 290) * K, depth: 2, tone: rand(0.82, 0.96), start });
       } else {
-        const light = Math.random() < 0.2;
+        const light = random() < 0.2;
         add({ x: p.x, y: p.y, a: a + side * rand(0.4, 0.95), w0: clamp(p.w * rand(0.45, 0.6), 1.3, 3.8),
               len: rand(45, 120) * K, depth: 3, tone: light ? rand(0.35, 0.5) : rand(0.62, 0.92), start });
       }
@@ -242,7 +248,7 @@ function buildScene() {
 
   // main limbs fan out from the top of the trunk, plus one or two lower ones
   const n = trunk.pts.length;
-  const fan = [-0.95, -0.4, 0.1, 0.55, 1.0].filter(() => Math.random() < 0.8);
+  const fan = [-0.95, -0.4, 0.1, 0.55, 1.0].filter(() => random() < 0.8);
   if (fan.length < 3) fan.push(-0.7, 0.6);
   for (const off of fan) {
     const i = Math.round(n * rand(0.84, 0.98));
@@ -251,7 +257,7 @@ function buildScene() {
           len: rand(380, 520) * K, depth: 1, tone: rand(0.9, 0.97), start: trunk.start + i / SPEED });
   }
   for (const side of [-1, 1]) {
-    if (Math.random() < 0.3) continue;
+    if (random() < 0.3) continue;
     const i = Math.round(n * rand(0.5, 0.72));
     const { p } = at(trunk, i);
     add({ x: p.x, y: p.y, a: -Math.PI / 2 + side * rand(1.0, 1.3), w0: p.w * rand(0.4, 0.55),
@@ -349,7 +355,7 @@ function makeFlowers(strokes, img, tEnd) {
       const count = tip ? pick([1, 1, 2]) : pick([1, 1, 1, 2, 2, 2]);
       const when = (s.start + i / SPEED) / tEnd;   // bloom follows the order the brush passed
       for (let k = 0; k < count; k++) {
-        const bud = tip && k === 0 ? Math.random() < 0.6 : Math.random() < 0.06;
+        const bud = tip && k === 0 ? random() < 0.6 : random() < 0.06;
         const R = (bud ? rand(4, 6) : rand(10, 17)) * K;
         const cx = p.x + rand(-20, 20) * K, cy = p.y + rand(-12, 20) * K;
         if (cy > GROUND - 6 || cy < 6 || cx < 6 || cx > LW - 6) continue;
@@ -434,7 +440,7 @@ function paintFlower(f) {
     ctx.strokeStyle = `rgba(${f.rim},${rand(0.1, 0.22)})`;
     ctx.lineWidth = rand(0.5, 1.3) * K;
     for (let k = 0; k < 5; k++) {
-      if (Math.random() < 0.35) continue;
+      if (random() < 0.35) continue;
       const a = Math.round(rand(per * 0.3)), b = Math.round(per - rand(per * 0.3));
       const sc = f.R * rand(0.95, 1.02);
       ctx.beginPath();
@@ -469,7 +475,7 @@ function makePetals(tx, flowers) {
     if (x < 6 || x > LW - 6) continue;
     petals.push({ x, y, s: rand(2.4, 4.4) * K, rot: rand(TAU), squash: air ? rand(0.3, 0.9) : rand(0.35, 0.6) });
   }
-  return petals.sort(() => Math.random() - 0.5);
+  return petals.sort(() => random() - 0.5);
 }
 
 function paintPetal(p) {
@@ -496,11 +502,16 @@ function paintPetal(p) {
 // ---------- timeline ----------
 // branches → blossoms → fallen petals
 
-let run = 0;
+let run = 0, finishRun = -1;
 const status = document.getElementById("status");
 
-function paint() {
+// Paints instantly by default. `animate` shows the generation process; `fresh` rolls a new picture,
+// otherwise the current one is painted again from its seed.
+function paint({ animate = false, fresh = true } = {}) {
   const id = ++run;
+  if (fresh) seed = (Math.random() * 4294967296) | 0;
+  rng = seeded(seed);
+  if (!animate) finishRun = id;
   if (!stage.clientWidth || !stage.clientHeight) return;   // hidden or zero-size frame: wait for a resize
   layout();
   paintPaper();
@@ -510,8 +521,8 @@ function paint() {
   let frame = 0, flowers = null, allFlowers = null, petals = null, flowerFrame = 0;
   status.textContent = `${strokes.length} brush strokes`;
 
-  (function tick() {
-    if (id !== run) return;
+  // one frame of painting; false once there is nothing left to paint
+  const step = () => {
     if (!flowers) {
       let active = 0;
       for (const s of strokes) {
@@ -532,18 +543,25 @@ function paint() {
       flowerFrame++;
     } else if ((petals ||= makePetals(tx, allFlowers)).length) {
       for (const p of petals.splice(0, 6)) paintPetal(p);
-    } else return;
-    requestAnimationFrame(tick);
+    } else return false;
+    return true;
+  };
+
+  (function tick() {
+    if (id !== run) return;
+    if (finishRun === id) { while (step()); return; }
+    if (step()) requestAnimationFrame(tick);
   })();
 }
 
-document.getElementById("again").onclick = paint;
-inkCv.onclick = paint;
+document.getElementById("again").onclick = () => paint({ animate: true, fresh: false });
+// clicking the painting skips ahead to the finished picture; it never starts a new one
+inkCv.onclick = () => { finishRun = run; };
 let lastW = innerWidth, lastH = innerHeight;
 addEventListener("resize", () => {
   if (Math.abs(innerWidth - lastW) + Math.abs(innerHeight - lastH) < 60) return;
   lastW = innerWidth; lastH = innerHeight;
-  paint();
+  paint({ fresh: false });
 });
 paint();
 </script>

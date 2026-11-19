@@ -1,16 +1,22 @@
-/* Global nav shared by every page. Pages can theme it through the --nav-* variables. */
+/* Global nav shared by every page: always black, whatever the page's own theme. */
 .gnav {
+  --nav-bg: #000;
+  --nav-ink: #ecebe7;
+  --nav-muted: #9a978f;
+  --nav-line: rgba(255, 255, 255, 0.14);
+  --nav-active: rgba(255, 255, 255, 0.09);
   position: relative;
   z-index: 10;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 24px;
+  gap: 4px 8px;
   padding: 8px 16px;
-  background: var(--nav-bg, #eeede9);
-  color: var(--nav-ink, #161514);
-  border-bottom: 1px solid var(--nav-line, rgba(0, 0, 0, 0.08));
+  background: var(--nav-bg);
+  color: var(--nav-ink);
+  border-bottom: 1px solid var(--nav-line);
   font: 13px/1.4 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
 }
 .gnav-brand {
   margin-right: auto;
@@ -20,19 +26,37 @@
   color: inherit;
   text-decoration: none;
 }
+* + .gnav-brand { margin-left: 12px; }
 .gnav-brand:hover { text-decoration: underline; text-underline-offset: 3px; }
-.gnav-brand:focus-visible { outline: 2px solid var(--nav-ink, #161514); outline-offset: 2px; border-radius: 4px; }
-.gnav-tabs { display: flex; gap: 2px; }
-.gnav-tabs a {
-  color: var(--nav-muted, #7d7a74);
+.gnav-brand:focus-visible { outline: 2px solid var(--nav-ink); outline-offset: 2px; border-radius: 4px; }
+
+/* Back to the home page, and a sketch's "Show generation process" beside it */
+.gnav-back,
+.gnav button.gnav-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding: 4px 10px 4px 6px;
+  font: inherit;
+  color: inherit;
   text-decoration: none;
-  padding: 6px 10px;
-  border-radius: 8px;
   white-space: nowrap;
+  background: transparent;
+  border: 1px solid var(--nav-line);
+  border-radius: 999px;
+  cursor: pointer;
 }
-.gnav-tabs a:hover { color: var(--nav-ink, #161514); }
-.gnav-tabs a[aria-current="page"] {
-  color: var(--nav-ink, #161514);
-  background: var(--nav-active, rgba(0, 0, 0, 0.06));
-}
-.gnav-tabs a:focus-visible { outline: 2px solid var(--nav-ink, #161514); outline-offset: 1px; }
+.gnav button.gnav-action { gap: 7px; padding-left: 10px; }
+.gnav-back svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.gnav-action .play { width: 10px; height: 10px; fill: currentColor; flex: none; }
+.gnav-back:hover,
+.gnav button.gnav-action:hover { background: var(--nav-active); border-color: var(--nav-line); }
+.gnav-back:focus-visible,
+.gnav button.gnav-action:focus-visible { outline: 2px solid var(--nav-ink); outline-offset: 2px; }
+
+/* When a sketch is embedded in the home page the frame shows the sketch alone; a sketch that can
+   replay its generation keeps just that button in the bar. */
+.in-frame .gnav:not(:has(.gnav-action)) { display: none; }
+.in-frame .gnav-back,
+.in-frame .gnav-brand { display: none; }
