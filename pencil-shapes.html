@@ -1,0 +1,1279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pencil &amp; Primitives</title>
+<link rel="stylesheet" href="/nav.css?v=2">
+<script>if (self !== top) document.documentElement.classList.add("in-frame");</script>
+<style>
+  :root {
+    --paper: #f8f7f2;
+    --ink: #161514;
+    --muted: #7d7a74;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 13px/1.4 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .stage { position: relative; flex: 1; min-height: 0; overflow: hidden; cursor: pointer; background: var(--paper); }
+  .stage.done { cursor: default; }
+  .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  /* the flat shapes are laid on like marker over pencil: the graphite shows through */
+  #shapes { mix-blend-mode: multiply; }
+
+  button {
+    font: inherit;
+    color: var(--ink);
+    background: rgba(248, 247, 242, 0.85);
+    border: 1px solid rgba(0, 0, 0, .12);
+    border-radius: 999px;
+    padding: 6px 14px;
+    cursor: pointer;
+  }
+  button:hover { border-color: rgba(0, 0, 0, .3); }
+  button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  /* the filter row: Back and "Show generation process" at the left (square), the emotion chips
+     centred across the stage (rounded), as in the other V2 sketches */
+  .filters {
+    position: absolute;
+    z-index: 2;
+    top: 12px;
+    left: 16px;
+    right: 16px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: start;
+    gap: 8px;
+  }
+  .filters .lead { grid-column: 1; justify-self: start; display: flex; gap: 6px; }
+  .filters .lead > * {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin: 0;
+    padding: 6px 14px 6px 8px;
+    font: inherit;
+    color: var(--ink);
+    text-decoration: none;
+    white-space: nowrap;
+    background: rgba(248, 247, 242, 0.85);
+    border: 1px solid rgba(0, 0, 0, .12);
+    border-radius: 0;
+    cursor: pointer;
+  }
+  .filters .lead > button { gap: 7px; padding-left: 12px; }
+  .filters .back svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .filters .lead .play { width: 10px; height: 10px; fill: currentColor; flex: none; }
+  .filters .lead > *:hover { border-color: rgba(0, 0, 0, .3); }
+  .filters .lead > *:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .in-frame .filters .back { display: none; }
+  .moods {
+    grid-column: 2;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+  }
+  @media (max-width: 760px) {
+    .filters { grid-template-columns: minmax(0, 1fr); }
+    .moods { grid-column: 1; }
+  }
+  .moods button[aria-pressed="true"] {
+    color: var(--paper);
+    background: var(--ink);
+    border-color: var(--ink);
+  }
+  .controls {
+    position: absolute;
+    z-index: 2;
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    color: var(--muted);
+  }
+  .pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 14px;
+    color: var(--ink);
+    background: rgba(248, 247, 242, 0.85);
+    border: 1px solid rgba(0, 0, 0, .12);
+    border-radius: 999px;
+  }
+  .count input { width: 160px; margin: 0; accent-color: var(--ink); cursor: pointer; }
+  .count output { min-width: 3ch; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .switch { gap: 8px; cursor: pointer; user-select: none; }
+  .switch span { color: var(--muted); }
+  .switch:not(:has(input:checked)) .off, .switch:has(input:checked) .on { color: var(--ink); }
+  .switch input {
+    appearance: none;
+    position: relative;
+    flex: none;
+    width: 30px;
+    height: 18px;
+    margin: 0;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, .2);
+    cursor: pointer;
+    transition: background-color .15s;
+  }
+  .switch input::before {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--paper);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+    transition: transform .15s;
+  }
+  .switch input:checked { background: var(--ink); }
+  .switch input:checked::before { transform: translateX(12px); }
+  .switch input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { .switch input, .switch input::before { transition: none; } }
+  @media (max-width: 560px) {
+    .moods { gap: 4px; }
+    .moods button, .filters .lead > * { padding: 5px 10px; }
+    .filters .back { padding-left: 6px; }
+    .pill { gap: 8px; padding: 4px 10px; }
+    .count input { width: 96px; }
+  }
+</style>
+</head>
+<body>
+<nav class="gnav">
+  <a class="gnav-brand" href="/">Biosense - tree visuals iteration</a>
+</nav>
+<div class="stage" id="stage">
+  <canvas id="paper" aria-hidden="true"></canvas>
+  <canvas id="pencil" aria-label="A close-up of an abstract tree: pencil arcs for branches and a few flat, hand-drawn shapes for buds, blossoms and leaves, with a lot of empty paper; click to finish drawing"></canvas>
+  <canvas id="live" aria-hidden="true"></canvas>
+  <canvas id="shapes" aria-hidden="true"></canvas>
+  <div class="filters">
+    <div class="lead">
+      <a class="back" href="/#v2" aria-label="Back to V2 Tree visuals"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>Back</a>
+      <button id="again" type="button"><svg class="play" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1.2v7.6a.6.6 0 0 0 .9.5l6.2-3.8a.6.6 0 0 0 0-1L2.9.7a.6.6 0 0 0-.9.5z"/></svg>Show generation process</button>
+    </div>
+    <div class="moods" id="moods" role="toolbar" aria-label="Choose an emotion (keys 1–6)"></div>
+  </div>
+  <div class="controls">
+    <label class="pill count">
+      <span id="countLabel">Blossoms</span>
+      <input id="count" type="range" min="0" max="40" value="12">
+      <output id="countOut" for="count">12</output>
+    </label>
+    <label class="pill switch" title="Mixed primitive shapes, or circles only (key C)">
+      <span class="off">Mixed</span>
+      <input id="circles" type="checkbox" role="switch" aria-label="Circles only (key C)">
+      <span class="on">Circles</span>
+    </label>
+  </div>
+</div>
+
+<script>
+// Pencil & primitives: an abstract tree in two materials, seen from close in.
+//
+// The branches are long arcs drawn in coloured pencil, after Mondrian's trees. A whole tree is grown
+// first: a few strokes rise together as the trunk, primaries sweep out at nearly constant curvature
+// and fall towards the horizontal, shorter arcs split off them, and a few long sweeps cut across the
+// crown. The arcs don't have to join: a branch may start a little short of its parent or back across
+// it, some tighten into a hook at the end, the pencil lifts off and comes down again further along,
+// and some lines get a second, parallel line beside them. Each arc is drawn with the pressure tapering
+// in and out, through a fixed paper tooth so the graphite breaks up as it does on real paper. A few
+// faint vertical and horizontal marks stand in for Mondrian's scaffolding.
+//
+// A camera then frames part of the crown from close in, like the other V2 sketches, so the arcs run
+// off the edges and the trunk and ground are never seen.
+//
+// The buds, blossoms and leaves are flat marker shapes: circles, ovals, buds, droplets, almonds,
+// triangles and shards, each pushed slightly out of true by a few low harmonics so it looks cut or
+// drawn by hand. They are placed sparsely, with a minimum gap between clusters, so most of the paper
+// stays empty. Clusters sit on branch tips, along branches, or float free.
+//
+// Once the drawing is done the shapes stay still, but the drawing keeps changing: now and then an
+// old branch is rubbed out from its tip back, its shapes letting go and falling under gravity as the
+// eraser passes them, and a new branch is drawn somewhere in the frame, growing as many shapes, in as
+// many clusters, as the old one carried. So the paper always holds about the same number of things.
+// Sad is all droplets: each one swells slowly where it hangs, and once it is full it drips, falls out
+// of the frame, and a new one starts to swell in its place.
+//
+// The six emotions are the V2 Sakura close-up's, at the same moments in the tree's year. Each one
+// sets the pencil (colours, pressure, how often a line is redrawn, lifted or doubled, how much the
+// hand shakes), how the arcs bend, which shapes grow, and how often a branch is redrawn.
+(() => {
+"use strict";
+
+// ---------- moods ----------
+// paper: the sheet's tint
+// pencil: cols (rgb, optional weight), w: line width in CSS px, alpha, passes: times each arc is
+//   drawn, drift: how far a redrawn line wanders off the first (px), tremor: hand shake (px),
+//   over: how far a redrawn line may overshoot the end, speed: CSS px drawn a second
+// tree: trunk strokes and their length; primaries and their angle from vertical (startA), length and
+//   turn (radians the arc bends over its length); downP: share of arcs that bend down; kids per arc,
+//   depth, kidLen (share of the parent), kidAng (off the parent's heading); kink: chance an arc
+//   reverses its bend; wander: small drift; max arcs; detach: how far a branch starts from its parent
+//   (world units, negative crosses back over it); lift: chance the pencil lifts off mid-line; echo:
+//   chance of a parallel second line; curl: chance an arc tightens into a hook; sweeps: long arcs
+//   across the crown
+// marks: Mondrian's scaffolding strokes
+// shapes: cols, types (weights), r (CSS px on a stage of 1000 x 1000; scales with the stage's area),
+//   per (shapes per cluster, weights), big (chance a lone or leading shape is drawn larger, and by how
+//   much), space (minimum gap between clusters, same units), wob (how far out of true), count (default
+//   number of clusters)
+// regrow: seconds between one branch being redrawn and the next
+// enter: how a shape arrives when the pen reaches it, and over how many seconds (Sad's droplets swell)
+// drip: droplets swell for grow seconds, hang full for hold, fall, and wait before the next swells
+
+const MOODS = {
+  stressed: {
+    key: 1, label: "Stressed", stage: "in bud", count: "Buds", hour: "a hesitant hand",
+    paper: [240, 241, 238],
+    pencil: { cols: [[72, 76, 88, 3], [112, 126, 152, 2]], w: [1.1, 1.5], alpha: [0.6, 0.85], passes: [2, 4], drift: 2.6, tremor: 0.9, over: 0.14, speed: 520 },
+    tree: { trunk: 2, trunkLen: [200, 240], trunkBend: 0.2, primaries: [8, 10], startA: [0.35, 1.2], len: [160, 280], turn: [0.2, 0.9], downP: 0.45,
+            kids: [1, 3], depth: 2, kidLen: [0.4, 0.7], kidAng: [0.4, 1.0], kink: 0.3, wander: 0.012, max: 46,
+            detach: [-12, 20], lift: 0.7, echo: 0.35, curl: 0.1, sweeps: 2 },
+    marks: 9,
+    shapes: { cols: [[186, 206, 130, 3], [160, 188, 112, 3], [234, 224, 164, 1]], types: { bud: 5, oval: 2, circle: 1 }, r: [16, 26],
+              per: { 1: 8, 2: 1.5, 3: 0.5 }, big: [0.12, 1.5, 2], space: 140, wob: 0.05, count: 10, mixCol: 0.25 },
+    regrow: [1.5, 3],
+    enter: { kind: "jitter", dur: 0.7 },
+  },
+  calm: {
+    key: 2, label: "Calm", stage: "first blossoms", count: "Blossoms", hour: "one unhurried line",
+    paper: [246, 245, 246],
+    pencil: { cols: [[104, 136, 196, 3], [150, 158, 208, 1]], w: [1.2, 1.6], alpha: [0.65, 0.85], passes: [1, 1], drift: 0.6, tremor: 0.05, over: 0.03, speed: 260 },
+    tree: { trunk: 2, trunkLen: [230, 270], trunkBend: 0.12, primaries: [4, 5], startA: [0.7, 1.25], len: [320, 480], turn: [0.5, 1.0], downP: 0.65,
+            kids: [0, 1], depth: 1, kidLen: [0.4, 0.6], kidAng: [0.25, 0.5], kink: 0, wander: 0.002, max: 12,
+            detach: [-6, 18], lift: 0.25, echo: 0.15, curl: 0.1, sweeps: 2 },
+    marks: 2,
+    shapes: { cols: [[170, 184, 234, 3], [236, 202, 218, 2], [198, 208, 240, 1]], types: { circle: 4, oval: 2, drop: 1 }, r: [40, 58],
+              per: { 1: 9, 2: 1 }, big: [0.2, 1.4, 1.9], space: 280, wob: 0.035, count: 5, mixCol: 0.1 },
+    regrow: [5, 8],
+    enter: { kind: "bloom", dur: 1.6 },
+  },
+  joyful: {
+    key: 3, label: "Joyful", stage: "full bloom", count: "Blossoms", hour: "a quick, sure hand",
+    paper: [250, 249, 244],
+    pencil: { cols: [[78, 146, 214, 8], [232, 122, 162, 2]], w: [1.3, 1.8], alpha: [0.75, 0.95], passes: [1, 2], drift: 1.2, tremor: 0.1, over: 0.06, speed: 460 },
+    tree: { trunk: 3, trunkLen: [200, 250], trunkBend: 0.15, primaries: [6, 8], startA: [0.45, 1.2], len: [320, 520], turn: [0.5, 1.2], downP: 0.7,
+            kids: [1, 2], depth: 2, kidLen: [0.35, 0.6], kidAng: [0.3, 0.8], kink: 0, wander: 0.004, max: 30,
+            detach: [-10, 26], lift: 0.4, echo: 0.3, curl: 0.25, sweeps: 3 },
+    marks: 4,
+    shapes: { cols: [[255, 232, 18, 8], [255, 204, 44, 2], [248, 152, 180, 1]], types: { circle: 6, oval: 1 }, r: [40, 62],
+              per: { 1: 8, 2: 1.5, 3: 0.5 }, big: [0.18, 1.5, 2.2], space: 230, wob: 0.04, count: 7, mixCol: 0.12 },
+    regrow: [3, 5],
+    enter: { kind: "bounce", dur: 1.1 },
+  },
+  loved: {
+    key: 4, label: "Loved", stage: "late bloom, young leaves", count: "Blossoms & leaves", hour: "warm, unhurried",
+    paper: [250, 245, 240],
+    pencil: { cols: [[196, 66, 102, 5], [112, 58, 56, 4], [236, 142, 162, 2]], w: [1.25, 1.7], alpha: [0.7, 0.9], passes: [1, 2], drift: 1.4, tremor: 0.1, over: 0.06, speed: 360 },
+    tree: { trunk: 3, trunkLen: [210, 260], trunkBend: 0.15, primaries: [6, 7], startA: [0.45, 1.15], len: [300, 480], turn: [0.5, 1.2], downP: 0.7,
+            kids: [1, 2], depth: 2, kidLen: [0.35, 0.6], kidAng: [0.3, 0.8], kink: 0, wander: 0.004, max: 28,
+            detach: [-8, 22], lift: 0.35, echo: 0.4, curl: 0.3, sweeps: 3 },
+    marks: 5,
+    shapes: { cols: [[242, 118, 132, 4], [250, 178, 146, 3], [156, 172, 84, 3]], types: { circle: 4, drop: 3, almond: 2 }, r: [30, 46],
+              per: { 1: 7, 2: 2.5, 3: 0.5 }, big: [0.15, 1.5, 2], space: 230, wob: 0.04, count: 7, mixCol: 0.45 },
+    regrow: [3.5, 6],
+    enter: { kind: "heartbeat", dur: 1.2 },
+  },
+  sad: {
+    key: 5, label: "Sad", stage: "petals falling", count: "Petals left", hour: "a light, tired hand",
+    paper: [237, 239, 243],
+    pencil: { cols: [[90, 96, 114, 3], [128, 138, 168, 2]], w: [1.0, 1.4], alpha: [0.55, 0.75], passes: [1, 2], drift: 1, tremor: 0.08, over: 0.05, speed: 240 },
+    tree: { trunk: 2, trunkLen: [240, 280], trunkBend: 0.1, primaries: [5, 7], startA: [0.35, 0.9], len: [300, 460], turn: [1.7, 2.6], downP: 0.95,
+            kids: [1, 2], depth: 2, kidLen: [0.4, 0.65], kidAng: [0.2, 0.5], kink: 0, wander: 0.003, max: 26,
+            detach: [-6, 30], lift: 0.5, echo: 0.25, curl: 0.35, sweeps: 2 },
+    marks: 4,
+    shapes: { cols: [[170, 174, 206, 3], [146, 156, 196, 2], [204, 200, 224, 2]], types: { drop: 1 }, r: [24, 36],
+              per: { 1: 9, 2: 1 }, big: [0.15, 1.4, 1.9], space: 240, wob: 0.04, count: 6, mixCol: 0.2 },
+    regrow: [4.5, 7.5],
+    enter: { kind: "swell", dur: 0.5 },
+    drip: { grow: [3, 6], hold: [0.4, 2.2], wait: [0.8, 3.5] },
+  },
+  angry: {
+    key: 6, label: "Angry", stage: "new leaves burning away", count: "Leaves", hour: "a hard, fast hand",
+    paper: [245, 241, 235],
+    pencil: { cols: [[62, 28, 30, 5], [200, 40, 44, 4], [40, 40, 62, 2]], w: [1.5, 2.2], alpha: [0.75, 0.95], passes: [2, 3], drift: 1.8, tremor: 0.35, over: 0.12, speed: 700 },
+    tree: { trunk: 3, trunkLen: [200, 250], trunkBend: 0.35, primaries: [7, 9], startA: [0.35, 1.35], len: [240, 420], turn: [-1.4, 2.2], downP: 0.5,
+            kids: [1, 3], depth: 2, kidLen: [0.4, 0.7], kidAng: [0.4, 1.1], kink: 0.5, wander: 0.01, max: 40,
+            detach: [-24, 30], lift: 0.6, echo: 0.45, curl: 0.3, sweeps: 4 },
+    marks: 9,
+    shapes: { cols: [[228, 46, 38, 5], [248, 124, 30, 3], [46, 34, 38, 2]], types: { shard: 4, tri: 3, circle: 1 }, r: [26, 44],
+              per: { 1: 7, 2: 2, 3: 1 }, big: [0.15, 1.5, 2.3], space: 200, wob: 0.06, count: 8, mixCol: 0.3 },
+    regrow: [1.2, 2.5],
+    enter: { kind: "snap", dur: 0.4 },
+  },
+};
+const ORDER = Object.keys(MOODS).sort((a, b) => MOODS[a].key - MOODS[b].key);
+
+// ---------- helpers ----------
+
+const TAU = Math.PI * 2;
+const REDUCE = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const MAXC = 40;    // clusters generated per drawing; the slider shows the first n
+const DS = 4;       // world units between points along an arc
+const seeded = seed => () => {
+  seed = (seed + 0x6D2B79F5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+// every drawing comes from a seed, so it can be redrawn the same (resize, generation process)
+let seed = 0, rng = Math.random;
+const R = (a, b) => a + (b - a) * rng();
+const RI = (a, b) => Math.floor(R(a, b + 1 - 1e-9));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const smooth = t => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+const pickW = entries => {
+  let s = 0;
+  for (const e of entries) s += e[1];
+  let x = rng() * s;
+  for (const e of entries) if ((x -= e[1]) <= 0) return e[0];
+  return entries[entries.length - 1][0];
+};
+const pickObj = o => pickW(Object.entries(o));
+const pickIdx = cols => pickW(cols.map((c, i) => [i, c[3] ?? 1]));
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = (rng() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+// smooth 1D value noise in [-1, 1], one table per call
+const makeNoise = () => {
+  const t = new Float32Array(256);
+  for (let i = 0; i < 256; i++) t[i] = rng();
+  return x => {
+    const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f);
+    const a = t[i & 255], b = t[(i + 1) & 255];
+    return (a + (b - a) * u) * 2 - 1;
+  };
+};
+
+let M;
+
+// ---------- canvases and textures ----------
+
+const stage = document.getElementById("stage");
+const paperCv = document.getElementById("paper");
+const penCv = document.getElementById("pencil");
+const liveCv = document.getElementById("live");   // the branch being rubbed out
+const shapeCv = document.getElementById("shapes");
+const xPaper = paperCv.getContext("2d");
+const xPen = penCv.getContext("2d");
+const xLive = liveCv.getContext("2d");
+const xShape = shapeCv.getContext("2d");
+let W = 1, H = 1, DPR = 1;
+
+function layout() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = Math.max(1, stage.clientWidth); H = Math.max(1, stage.clientHeight);
+  for (const cv of [paperCv, penCv, liveCv, shapeCv]) { cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR); }
+}
+
+// The paper's tooth: one tile, fixed to the sheet, that every pencil stroke is drawn through. Short
+// horizontal fibres plus fine grain; graphite only catches where the tooth is high.
+const G = 160;
+const TOOTH = (() => {
+  const LX = G / 4, LY = G / 2, lat = new Float32Array(LX * LY);
+  for (let i = 0; i < lat.length; i++) lat[i] = Math.random();
+  const g = new Float32Array(G * G);
+  for (let y = 0; y < G; y++) for (let x = 0; x < G; x++) {
+    const fx = x / 4, fy = y / 2, ix = Math.floor(fx), iy = Math.floor(fy), u = fx - ix, v = fy - iy;
+    const a = lat[(iy % LY) * LX + (ix % LX)], b = lat[(iy % LY) * LX + ((ix + 1) % LX)];
+    const c = lat[((iy + 1) % LY) * LX + (ix % LX)], d = lat[((iy + 1) % LY) * LX + ((ix + 1) % LX)];
+    const fib = (a + (b - a) * u) * (1 - v) + (c + (d - c) * u) * v;
+    const tooth = 0.55 * fib + 0.45 * Math.random();
+    g[y * G + x] = Math.pow(clamp((tooth - 0.04) / 0.5, 0, 1), 1.1);
+  }
+  return g;
+})();
+
+function tile(n, fill) {
+  const c = document.createElement("canvas");
+  c.width = c.height = n;
+  const x = c.getContext("2d"), id = x.createImageData(n, n);
+  fill(id.data);
+  x.putImageData(id, 0, 0);
+  return c;
+}
+// a pencil colour drawn through the tooth
+const pencilPattern = rgb => xPen.createPattern(tile(G, d => {
+  for (let i = 0; i < G * G; i++) { d[i * 4] = rgb[0]; d[i * 4 + 1] = rgb[1]; d[i * 4 + 2] = rgb[2]; d[i * 4 + 3] = TOOTH[i] * 255; }
+}), "repeat");
+// a marker colour: nearly flat, with faint diagonal streaks where the nib dragged
+const markerPattern = rgb => xShape.createPattern(tile(128, d => {
+  for (let y = 0; y < 128; y++) for (let x = 0; x < 128; x++) {
+    const i = (y * 128 + x) * 4;
+    const s = 0.5 + 0.3 * Math.sin(TAU * 3 * (x + y) / 128 + 0.8 * Math.sin(TAU * 2 * y / 128)) + 0.2 * Math.sin(TAU * (5 * x - 10 * y) / 128);
+    d[i] = rgb[0]; d[i + 1] = rgb[1]; d[i + 2] = rgb[2];
+    d[i + 3] = (0.93 + 0.05 * s + 0.02 * Math.random()) * 255;
+  }
+}), "repeat");
+// paper grain: light and dark specks
+const GRAIN_TILE = tile(256, d => {
+  for (let i = 0; i < 256 * 256; i++) {
+    const v = Math.random() - 0.5;
+    const c = v > 0 ? 255 : 0;
+    d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = c;
+    d[i * 4 + 3] = Math.abs(v) * (v > 0 ? 34 : 26);
+  }
+});
+
+function paintPaper() {
+  const w = paperCv.width, h = paperCv.height, [r, g, b] = M.paper;
+  xPaper.setTransform(1, 0, 0, 1, 0, 0);
+  xPaper.fillStyle = `rgb(${r},${g},${b})`;
+  xPaper.fillRect(0, 0, w, h);
+  // a few broad, barely-there blotches in the sheet
+  for (let i = 0; i < 7; i++) {
+    const x = Math.random() * w, y = Math.random() * h, rad = (0.2 + Math.random() * 0.35) * Math.max(w, h);
+    const gr = xPaper.createRadialGradient(x, y, 0, x, y, rad);
+    const dark = Math.random() < 0.5;
+    gr.addColorStop(0, dark ? "rgba(90,80,60,0.025)" : "rgba(255,255,255,0.05)");
+    gr.addColorStop(1, "rgba(0,0,0,0)");
+    xPaper.fillStyle = gr;
+    xPaper.fillRect(0, 0, w, h);
+  }
+  xPaper.fillStyle = xPaper.createPattern(GRAIN_TILE, "repeat");
+  xPaper.fillRect(0, 0, w, h);
+  document.documentElement.style.setProperty("--paper", `rgb(${r},${g},${b})`);
+}
+
+// ---------- the arcs ----------
+// An arc starts at a point with a heading and bends at a nearly constant rate, so it reads as one
+// sweep of the arm; some tighten towards the end into a hook. y grows downward; the tree's base is
+// at (0, 0).
+
+function makeArc({ x, y, a, len, k, depth, kind = "branch", parent = null, t0 = 0, over = 0, wander = 0, kink = 0, curl = 0, lift = 0, echo = 0 }) {
+  const total = len * (1 + over), n = Math.max(2, Math.ceil(total / DS));
+  const xs = new Float32Array(n + 1), ys = new Float32Array(n + 1), th = new Float32Array(n + 1);
+  const wn = makeNoise(), wo = R(0, 100);
+  let kinkAt = rng() < kink ? R(0.35, 0.75) * len : -1, kk = k;
+  const hook = rng() < curl ? R(0.8, 2.6) : 0;
+  for (let i = 0; i <= n; i++) {
+    xs[i] = x; ys[i] = y; th[i] = a;
+    if (kinkAt >= 0 && i * DS >= kinkAt) { kk = -kk * R(0.6, 1.6); a += R(-0.3, 0.3); kinkAt = -1; }
+    a += kk * DS * (1 + hook * Math.min(1, (i * DS) / len) ** 2) + wander * wn(i * DS * 0.02 + wo) * DS;
+    x += Math.cos(a) * DS; y += Math.sin(a) * DS;
+  }
+  const P = M.pencil, drawn = kind !== "mark";
+  const arc = { xs, ys, th, n, len, nMain: Math.min(n, Math.round(len / DS)), depth, kind, parent, t0,
+                col: drawn ? pickIdx(P.cols) : 0, w: R(...P.w), alpha: R(...P.alpha), passes: [] };
+  // the pencil lifts off and comes down again a little further on
+  const spans = (s0, s1) => {
+    const nl = rng() < lift ? (rng() < 0.35 ? 2 : 1) : 0, cuts = [];
+    for (let i = 0; i < nl; i++) cuts.push(R(0.2, 0.85));
+    cuts.sort((p, q) => p - q);
+    const out = [];
+    let from = s0;
+    for (const u of cuts) {
+      const c = s0 + (s1 - s0) * u, g = len * R(0.025, 0.07);
+      if (c - g / 2 > from + 8) { out.push([from, c - g / 2]); from = c + g / 2; }
+    }
+    if (s1 > from + 8) out.push([from, s1]);
+    return out;
+  };
+  const pass = (main, s0, s1, extra) => ({ main, shift: 0, spans: spans(s0, s1), nz: makeNoise(), nz2: makeNoise(), nz3: makeNoise(), off: R(-1, 1),
+                                           col: main || rng() < 0.6 ? arc.col : pickIdx(P.cols), ...extra });
+  // each arc is drawn once, then perhaps again a little off the first line
+  const np = drawn ? RI(...P.passes) : 1;
+  for (let p = 0; p < np; p++) {
+    if (p === 0) arc.passes.push(pass(true, 0, len));
+    else arc.passes.push(pass(false, R(0, 0.18) * len, Math.min(n * DS, R(0.8, 1 + over) * len)));
+  }
+  // and some get a parallel line beside part of them (CSS px apart)
+  if (drawn && rng() < echo)
+    arc.passes.push(pass(false, R(0.05, 0.4) * len, R(0.6, 1) * len, { echo: true, shift: (rng() < 0.5 ? -1 : 1) * R(5, 13) }));
+  return arc;
+}
+
+const treeOpts = () => { const T = M.tree; return { wander: T.wander, kink: T.kink, curl: T.curl, lift: T.lift, echo: T.echo }; };
+
+// a branch off a parent at t (0..1 along it) with heading a
+function spawnArc(par, t, a, len, depth) {
+  const T = M.tree, i = Math.round(t * par.nMain);
+  const hs = Math.cos(a) >= 0 ? 1 : -1;            // which way it is travelling
+  const down = rng() < T.downP;
+  const k = hs * (down ? 1 : -1) * R(...T.turn) / len;
+  // a branch needn't touch its parent: it may start a little short of it, or back across it
+  const d = R(...T.detach), side = R(-0.5, 0.5) * Math.abs(d);
+  const x = par.xs[i] + Math.cos(a) * d - Math.sin(a) * side, y = par.ys[i] + Math.sin(a) * d + Math.cos(a) * side;
+  return makeArc({ x, y, a, len, k, depth, parent: par, t0: t, over: R(0, M.pencil.over), ...treeOpts() });
+}
+
+// a long sweep through (x, y), as in Mondrian's trees: it passes through the branches rather than
+// growing from them
+function sweepArc(x, y, par = null, t0 = 0) {
+  const len = R(380, 680), a = (rng() < 0.5 ? 0 : Math.PI) + R(-0.4, 0.4), back = len * R(0.25, 0.6);
+  const hs = Math.cos(a) >= 0 ? 1 : -1, k = hs * (rng() < M.tree.downP ? 1 : -1) * R(0.3, 1.1) / len;
+  return makeArc({ x: x - Math.cos(a) * back, y: y - Math.sin(a) * back, a, len, k, depth: 1,
+                   parent: par, t0, over: R(0, M.pencil.over), ...treeOpts() });
+}
+
+function genTree() {
+  const T = M.tree, arcs = [];
+  const opts = treeOpts();
+  const spawn = (par, t, a, len, depth) => { const arc = spawnArc(par, t, a, len, depth); arcs.push(arc); return arc; };
+  // the trunk: a few strokes rising together, slightly apart
+  const nT = T.trunk, trunks = [];
+  for (let i = 0; i < nT; i++) {
+    const c = i - (nT - 1) / 2, len = R(...T.trunkLen);
+    const a = -Math.PI / 2 + c * 0.04 + R(-0.03, 0.03);
+    const arc = makeArc({ x: c * 7 + R(-2, 2), y: 0, a, len, k: R(-1, 1) * T.trunkBend / len, depth: 0, kind: "trunk",
+                          over: R(0, M.pencil.over), ...opts, wander: T.wander * 0.5 });
+    arcs.push(arc); trunks.push(arc);
+  }
+  // primaries sweep out from the upper trunk, alternating sides
+  const nP = RI(...T.primaries);
+  const sides = shuffle(Array.from({ length: nP }, (_, i) => (i % 2 ? 1 : -1)));
+  const queue = [];
+  for (let i = 0; i < nP; i++) {
+    const par = trunks[RI(0, nT - 1)];
+    queue.push(spawn(par, R(0.5, 1), -Math.PI / 2 + sides[i] * R(...T.startA), R(...T.len), 1));
+  }
+  // and shorter arcs split off them
+  for (let qi = 0; qi < queue.length && arcs.length < T.max; qi++) {
+    const p = queue[qi];
+    if (p.depth >= T.depth) continue;
+    const nk = RI(...T.kids);
+    for (let j = 0; j < nk && arcs.length < T.max; j++) {
+      const t = R(0.3, 0.9), i = Math.round(t * p.nMain);
+      const a = p.th[i] + (rng() < 0.5 ? 1 : -1) * R(...T.kidAng);
+      queue.push(spawn(p, t, a, p.len * R(...T.kidLen), p.depth + 1));
+    }
+  }
+  // and a few long sweeps across the crown
+  const branches = arcs.filter(a => a.kind === "branch");
+  for (let i = 0; i < T.sweeps && branches.length; i++) {
+    const par = branches[RI(0, branches.length - 1)], t = R(0.2, 0.9), j = Math.round(t * par.nMain);
+    arcs.push(sweepArc(par.xs[j], par.ys[j], par, t));
+  }
+  return arcs;
+}
+
+const boxOf = (arcs, main = false) => {
+  const b = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+  for (const a of arcs) for (let i = 0, n = main ? a.nMain : a.n; i <= n; i++) {
+    b.x0 = Math.min(b.x0, a.xs[i]); b.x1 = Math.max(b.x1, a.xs[i]);
+    b.y0 = Math.min(b.y0, a.ys[i]); b.y1 = Math.max(b.y1, a.ys[i]);
+  }
+  return b;
+};
+
+// The camera: a view with the stage's proportions and 1/ZOOM of the crown's size, slid over the crown
+// to one of its busiest places: many different arcs crossing it, little trunk, and never low enough
+// to show the lower trunk or the ground.
+const ZOOM = 2.4;
+function frameView(arcs) {
+  const crown = boxOf(arcs.filter(a => a.kind === "branch"), true);
+  const cw = crown.x1 - crown.x0, ch = crown.y1 - crown.y0;
+  const area = (cw * ch) / (ZOOM * ZOOM);
+  const vw = Math.sqrt((area * W) / H), vh = Math.sqrt((area * H) / W);
+  const trunks = arcs.filter(a => a.kind === "trunk");
+  const floor = Math.min(...trunks.map(a => a.ys[Math.round(a.nMain * 0.8)]));   // the view's bottom stays above this
+  const x0 = crown.x0 - vw * 0.1, x1 = Math.max(x0, crown.x1 - vw * 0.9);
+  const y0 = crown.y0 - vh * 0.1, y1 = Math.max(y0, floor - vh);
+  const pts = [];
+  for (const a of arcs) for (let i = 0; i <= a.nMain; i += 4) pts.push(a.xs[i], a.ys[i], arcs.indexOf(a));
+  const views = [];
+  for (let fx = 0; fx <= 1.0001; fx += 1 / 8) for (let fy = 0; fy <= 1.0001; fy += 1 / 8) {
+    const x = x0 + (x1 - x0) * fx, y = y0 + (y1 - y0) * fy;
+    const seen = new Set();
+    let n = 0, tr = 0;
+    for (let i = 0; i < pts.length; i += 3) {
+      const px = pts[i], py = pts[i + 1];
+      if (px < x + vw * 0.06 || px > x + vw * 0.94 || py < y + vh * 0.06 || py > y + vh * 0.94) continue;
+      if (arcs[pts[i + 2]].kind === "trunk") tr++; else { n++; seen.add(pts[i + 2]); }
+    }
+    views.push({ x, y, w: vw, h: vh, s: seen.size * 6 + n * 0.5 - tr * 4 });
+  }
+  const best = Math.max(...views.map(v => v.s));
+  const good = views.filter(v => v.s >= best - Math.abs(best) * 0.2);
+  return good[(rng() * good.length) | 0];
+}
+
+// Mondrian's scaffolding: a few faint straight strokes in the view, vertical or horizontal, some crossing
+function genMarks(v) {
+  const out = [];
+  const mk = (x, y, vertical, len) => {
+    const a = (vertical ? -Math.PI / 2 : rng() < 0.5 ? 0 : Math.PI) + R(-0.03, 0.03);
+    const sx = x - Math.cos(a) * len / 2, sy = y - Math.sin(a) * len / 2;
+    out.push(makeArc({ x: sx, y: sy, a, len, k: R(-0.0004, 0.0004), depth: -1, kind: "mark" }));
+  };
+  for (let i = 0; i < M.marks; i++) {
+    const x = R(v.x, v.x + v.w), y = R(v.y, v.y + v.h), vert = rng() < 0.5;
+    mk(x, y, vert, R(50, 200) * v.k);
+    if (rng() < 0.3) mk(x + R(-8, 8) * v.k, y + R(-8, 8) * v.k, !vert, R(30, 90) * v.k);
+  }
+  return out;
+}
+
+// ---------- the shapes ----------
+// Every shape is a closed outline of N points around its centre, equal in area to the unit circle.
+// Primitive outlines are built from straight edges and arcs, resampled evenly and softened; the
+// organic distortion is added at draw time, so it can drift.
+
+const N = 64;
+function resample(P, n) {
+  const m = P.length, L = [0];
+  for (let i = 1; i <= m; i++) { const a = P[i - 1], b = P[i % m]; L.push(L[i - 1] + Math.hypot(b[0] - a[0], b[1] - a[1])); }
+  const out = [];
+  let j = 0;
+  for (let k = 0; k < n; k++) {
+    const d = (k / n) * L[m];
+    while (L[j + 1] < d) j++;
+    const f = (d - L[j]) / (L[j + 1] - L[j] || 1), a = P[j], b = P[(j + 1) % m];
+    out.push([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f]);
+  }
+  return out;
+}
+const polygon = (vs, per = 16) => {
+  const P = [];
+  for (let i = 0; i < vs.length; i++) {
+    const a = vs[i], b = vs[(i + 1) % vs.length];
+    for (let k = 0; k < per; k++) P.push([a[0] + (b[0] - a[0]) * k / per, a[1] + (b[1] - a[1]) * k / per]);
+  }
+  return P;
+};
+const ring = (fx, fy, m = 72) => Array.from({ length: m }, (_, i) => { const p = (i / m) * TAU; return [fx(p), fy(p)]; });
+
+function outline(type) {
+  let P, soft = 0;
+  switch (type) {
+    case "oval": P = ring(Math.cos, p => 0.7 * Math.sin(p)); break;
+    case "bud": {   // an egg, narrow end up
+      const f = p => 1 - 0.45 * (1 - Math.sin(p)) / 2;
+      P = ring(p => 0.7 * Math.cos(p) * f(p), Math.sin);
+      break;
+    }
+    case "drop": {  // a droplet: round below, drawn up to a point
+      P = ring(p => Math.sin(p) * Math.abs(Math.sin(p / 2)) ** 1.3 * 0.95, p => -Math.cos(p));
+      soft = 1;
+      break;
+    }
+    case "almond": {  // two arcs meeting in points
+      P = [];
+      const Rr = 1.25, d = 0.75;
+      for (let i = 0; i <= 24; i++) { const x = -1 + (2 * i) / 24; P.push([x, d - Math.sqrt(Rr * Rr - x * x)]); }
+      for (let i = 1; i < 24; i++) { const x = 1 - (2 * i) / 24; P.push([x, -d + Math.sqrt(Rr * Rr - x * x)]); }
+      soft = 1;
+      break;
+    }
+    case "tri": P = polygon([0, 1, 2].map(i => { const p = -Math.PI / 2 + (i * TAU) / 3; return [Math.cos(p), Math.sin(p)]; })); soft = 3; break;
+    case "square": P = ring(p => Math.sign(Math.cos(p)) * Math.abs(Math.cos(p)) ** 0.45, p => Math.sign(Math.sin(p)) * Math.abs(Math.sin(p)) ** 0.45); break;
+    case "shard": {   // an uneven triangle or quad, as if torn
+      const nv = rng() < 0.6 ? 3 : 4, angs = [];
+      for (let i = 0; i < nv; i++) angs.push((i / nv) * TAU + R(-0.5, 0.5) * (TAU / nv / 2));
+      P = polygon(angs.map(p => { const r = R(0.6, 1.25); return [Math.cos(p) * r, Math.sin(p) * r * R(0.6, 1)]; }));
+      soft = 2;
+      break;
+    }
+    default: P = ring(Math.cos, Math.sin);
+  }
+  P = resample(P, N);
+  for (let s = 0; s < soft; s++) P = P.map((p, i) => {
+    const a = P[(i + N - 1) % N], b = P[(i + 1) % N];
+    return [(a[0] + 2 * p[0] + b[0]) / 4, (a[1] + 2 * p[1] + b[1]) / 4];
+  });
+  // centre on the centroid, scale to the unit circle's area
+  let A = 0, cx = 0, cy = 0;
+  for (let i = 0; i < N; i++) {
+    const [x0, y0] = P[i], [x1, y1] = P[(i + 1) % N], c = x0 * y1 - x1 * y0;
+    A += c; cx += (x0 + x1) * c; cy += (y0 + y1) * c;
+  }
+  A /= 2; cx /= 6 * A; cy /= 6 * A;
+  const s = Math.sqrt(Math.PI / Math.abs(A));
+  const xs = new Float32Array(N), ys = new Float32Array(N), an = new Float32Array(N);
+  for (let i = 0; i < N; i++) { xs[i] = (P[i][0] - cx) * s; ys[i] = (P[i][1] - cy) * s; an[i] = Math.atan2(ys[i], xs[i]); }
+  return { xs, ys, an };
+}
+const CIRCLE = (() => { const r = rng; rng = Math.random; const o = outline("circle"); rng = r; return o; })();
+
+function makeShape(type, x, y, r, col, rot) {
+  const wob = M.shapes.wob;
+  return {
+    type, x, y, r, col, rot,
+    base: outline(type),
+    harm: [[2, wob * R(0.3, 0.7)], [3, wob * R(0.4, 0.9)], [5, wob * R(0.1, 0.35)]].map(([k, a]) => ({ k, a, ph: R(0, TAU) })),
+    tAppear: -1e9, tFall: null,
+    vx: R(-24, 24), spin: R(-0.9, 0.9) * (type === "drop" ? 0.2 : 1), ph: R(0, TAU),   // how it falls
+    drip: M.drip ? { grow: R(...M.drip.grow), hold: R(...M.drip.hold) } : null,
+  };
+}
+
+const inV = (v, x, y, m = 0) => x > v.x - v.w * m && x < v.x + v.w * (1 + m) && y > v.y - v.h * m && y < v.y + v.h * (1 + m);
+
+// n shapes (or the mood's own number) at a spot: touching, slightly overlapping one another
+function clusterAt(c, n, k) {
+  const S = M.shapes, shapes = [];
+  n = n ?? +pickObj(S.per);
+  const col = pickIdx(S.cols);
+  for (let j = 0; j < n; j++) {
+    const r = R(...S.r) * k * (j === 0 && S.big && rng() < S.big[0] ? R(S.big[1], S.big[2]) : 1);
+    let x = c.x, y = c.y;
+    if (j > 0) {
+      const prev = shapes[RI(0, j - 1)], a = R(0, TAU), d = (prev.r + r) * R(0.62, 0.9);
+      x = prev.x + Math.cos(a) * d; y = prev.y + Math.sin(a) * d;
+    }
+    const type = pickObj(S.types);
+    // buds and leaves follow the branch, tip outward; droplets hang point up
+    const rot = type === "drop" ? R(-0.5, 0.5) * (M.drip ? 0.3 : 1)
+              : c.arc && (type === "bud" || type === "almond") ? c.ang + Math.PI / 2 + R(-0.3, 0.3) : R(0, TAU);
+    shapes.push(makeShape(type, x, y, r, rng() < S.mixCol ? pickIdx(S.cols) : col, rot));
+  }
+  return { x: c.x, y: c.y, arc: c.arc, t: c.t, ang: c.ang, shapes };
+}
+
+// Sparse placement: candidate points on branch tips, along branches and in the open, all inside the
+// view (a little past its edges, so a shape may be cut off by the frame), taken in a weighted random
+// order and kept only if they are far enough from every cluster kept before them. The gap shrinks a
+// little each round, so the first clusters are the sparsest.
+function genClusters(arcs, v) {
+  const S = M.shapes, k = v.k, cands = [];
+  const inView = (x, y, m = 0.03) => x > v.x - v.w * m && x < v.x + v.w * (1 + m) && y > v.y - v.h * m && y < v.y + v.h * (1 + m);
+  for (const a of arcs) {
+    if (a.kind !== "branch") continue;
+    const e = a.nMain;
+    if (inView(a.xs[e], a.ys[e])) cands.push({ x: a.xs[e], y: a.ys[e], w: 3, arc: a, t: 1, ang: a.th[e] });
+    for (let j = 0; j < 6; j++) {
+      const t = R(0.2, 0.95), i = Math.round(t * a.nMain);
+      if (inView(a.xs[i], a.ys[i])) cands.push({ x: a.xs[i], y: a.ys[i], w: 1, arc: a, t, ang: a.th[i] });
+    }
+  }
+  for (let j = 0; j < 40; j++) cands.push({ x: R(v.x, v.x + v.w), y: R(v.y, v.y + v.h), w: 0.9, arc: null, t: 0, ang: R(0, TAU) });
+  for (const c of cands) c.key = Math.pow(rng(), 1 / c.w);
+  cands.sort((a, b) => b.key - a.key);
+  const out = [], used = new Set();
+  let dmin = S.space * k;
+  for (let round = 0; round < 6 && out.length < MAXC; round++, dmin *= 0.82) {
+    for (const c of cands) {
+      if (out.length >= MAXC) break;
+      if (used.has(c)) continue;
+      if (out.some(o => Math.hypot(o.x - c.x, o.y - c.y) < dmin)) continue;
+      used.add(c); out.push(c);
+    }
+  }
+  return out.map(c => clusterAt(c, undefined, k));
+}
+
+// ---------- the drawing ----------
+
+let scene = null, run = 0, finishRun = 0;
+let ox = 0, oy = 0, SC = 1;              // world -> CSS px: X = ox + x * SC
+let pencilPats = [], markerPats = [], edgeCols = [];
+let CIRCLES = false;
+
+function fit(sc) {
+  const v = sc.view;
+  SC = W / v.w;
+  ox = -v.x * SC; oy = -v.y * SC;
+}
+
+// Each span of each pass of each arc becomes a run of short segments in device pixels, with its own
+// width and alpha: the pressure tapers in and out at every lift and wavers, and a redrawn pass drifts
+// off the first line. Spans that never come into view are dropped.
+function strokesOf(a) {
+  const P = M.pencil, strokes = [], cw = penCv.width, ch = penCv.height, pad = 30 * DPR;
+  {
+    const kindA = a.kind === "mark" ? 0.42 : 1;
+    const depthW = a.kind === "trunk" ? 1.35 : a.depth === 1 ? 1.1 : a.depth >= 2 ? 0.9 : 0.8;
+    a.passes.forEach((ps, pi) => {
+      for (const [s0, s1] of ps.spans) {
+        const i0 = Math.floor(s0 / DS), i1 = Math.min(a.n, Math.ceil(s1 / DS)), m = i1 - i0;
+        if (m < 1) continue;
+        const x = new Float32Array(m + 1), y = new Float32Array(m + 1), w = new Float32Array(m), al = new Float32Array(m);
+        const drift = (ps.main ? 0.3 : 1) * P.drift;
+        let first = -1, lastIn = -1;
+        for (let j = 0; j <= m; j++) {
+          const i = i0 + j, s = i * DS, th = a.th[i];
+          const lat = ps.shift + drift * (ps.nz(s * 0.012) + ps.off * 0.6) + P.tremor * ps.nz2(s * 0.18);
+          x[j] = (ox + a.xs[i] * SC - Math.sin(th) * lat) * DPR;
+          y[j] = (oy + a.ys[i] * SC + Math.cos(th) * lat) * DPR;
+          if (x[j] > -pad && x[j] < cw + pad && y[j] > -pad && y[j] < ch + pad) { if (first < 0) first = j; lastIn = j; }
+          if (j < m) {
+            const u = (s - s0) / (s1 - s0 || 1);
+            const pin = 0.25 + 0.75 * smooth(u / 0.07), pout = 0.15 + 0.85 * smooth((1 - u) / 0.16);
+            const pr = pin * pout * (0.8 + 0.2 * ps.nz3(s * 0.03));
+            w[j] = Math.max(0.5, a.w * depthW * (0.55 + 0.45 * pr)) * DPR;
+            al[j] = clamp(a.alpha * kindA * (0.45 + 0.55 * pr) * (ps.main ? 1 : ps.echo ? 0.55 : 0.7), 0, 1);
+          }
+        }
+        if (first < 0) continue;
+        strokes.push({ arc: a, pass: pi, col: ps.col, x, y, w, al, m, i0, done: 0, s0, s1, first, lastIn, tStart: 0, dur: 1 });
+      }
+    });
+  }
+  return strokes;
+}
+
+const buildStrokes = sc => sc.allArcs.flatMap(strokesOf);
+
+// alpha(j, a) may fade or skip (return 0) a segment
+function drawStroke(st, from, to, c = xPen, alpha = null) {
+  c.strokeStyle = pencilPats[st.col];
+  for (let j = from; j < to; j++) {
+    const a = alpha ? alpha(j, st.al[j]) : st.al[j];
+    if (a <= 0.003) continue;
+    c.globalAlpha = a;
+    c.lineWidth = st.w[j];
+    c.beginPath();
+    c.moveTo(st.x[j], st.y[j]);
+    c.lineTo(st.x[j + 1], st.y[j + 1]);
+    c.stroke();
+  }
+  c.globalAlpha = 1;
+}
+
+// the generation process: the whole tree is drawn trunk first, each branch starting when the pen on
+// its parent reaches it, at the same speed on screen; the clock starts when the first line comes into
+// the frame. Marks come in among the arcs; shapes are dabbed on once the branch under them is drawn.
+function timeline(sc) {
+  const v = M.pencil.speed / SC;
+  const t = new Map();
+  for (const a of sc.arcs)
+    t.set(a, a.parent ? t.get(a.parent) + (a.t0 * a.parent.len) / v + 0.06 : sc.arcs.indexOf(a) * 0.1);
+  let off = Infinity, end = 0;
+  for (const st of sc.strokes) {
+    if (st.arc.kind === "mark") continue;
+    st.tStart = t.get(st.arc) + st.pass * 0.14 + st.s0 / v;
+    st.dur = Math.max(0.05, (st.s1 - st.s0) / v);
+    off = Math.min(off, st.tStart + (st.first / st.m) * st.dur);
+  }
+  if (!isFinite(off)) off = 0;
+  for (const st of sc.strokes) {
+    if (st.arc.kind === "mark") continue;
+    st.tStart -= off;
+    end = Math.max(end, st.tStart + ((st.lastIn + 1) / st.m) * st.dur);
+  }
+  for (const st of sc.strokes) {
+    if (st.arc.kind !== "mark") continue;
+    st.tStart = (0.15 + 0.75 * Math.random()) * end;
+    st.dur = Math.max(0.05, (st.s1 - st.s0) / (v * 1.5));
+  }
+  for (const c of sc.clusters) {
+    const base = c.arc ? Math.max(0.2, t.get(c.arc) - off + (c.t * c.arc.len) / v + 0.12) : (0.55 + 0.45 * Math.random()) * end + 0.2;
+    c.shapes.forEach((s, k) => { s.tAppear = base + k * 0.14; });
+  }
+  return end;
+}
+
+const countIn = document.getElementById("count");
+const countOut = document.getElementById("countOut");
+const countLabel = document.getElementById("countLabel");
+const visible = () => (scene ? scene.clusters.slice(0, +countIn.value) : []);
+
+function paint({ animate = false, fresh = true } = {}) {
+  const id = ++run;
+  if (fresh) seed = (Math.random() * 4294967296) | 0;
+  rng = seeded(seed);
+  if (!stage.clientWidth || !stage.clientHeight) return;
+  layout();
+
+  const firstPaint = !scene;   // the stage may have had no size when the mood was first set
+  const arcs = genTree();
+  const view = frameView(arcs);
+  view.k = Math.sqrt(view.w * view.h) / 1000;   // world units per CSS px on a 1000 x 1000 stage
+  const marks = genMarks(view);
+  const clusters = genClusters(arcs, view);
+  const allArcs = [...marks, ...arcs];
+  const sc = scene = { arcs, marks, allArcs, clusters, view, loose: [] };   // loose: shapes still falling from erased branches
+  paintPaper();
+  fit(sc);
+  pencilPats = M.pencil.cols.map(c => pencilPattern(c));
+  markerPats = M.shapes.cols.map(c => markerPattern(c));
+  edgeCols = M.shapes.cols.map(c => `rgba(${(c[0] * 0.84) | 0},${(c[1] * 0.84) | 0},${(c[2] * 0.84) | 0},0.32)`);
+  sc.strokes = buildStrokes(sc);
+  sc.end = timeline(sc);
+
+  countIn.max = String(clusters.length);
+  if (fresh || firstPaint) countIn.value = String(Math.min(M.shapes.count, clusters.length));
+  countLabel.textContent = M.count;
+  countOut.value = countIn.value;
+
+  xPen.setTransform(1, 0, 0, 1, 0, 0);
+  xPen.clearRect(0, 0, penCv.width, penCv.height);
+  xPen.lineCap = xLive.lineCap = "butt";
+  clearLive();
+  cycle = null;
+  shapesBusyUntil = 0;
+  sc.t0 = performance.now();
+  sc.animating = animate;
+  stage.classList.toggle("done", !animate);
+  if (!animate) finish(sc);
+  dirty = true;
+}
+
+function finish(sc) {
+  for (const st of sc.strokes) if (st.done < st.m) { drawStroke(st, st.done, st.m); st.done = st.m; }
+  const now = (performance.now() - sc.t0) / 1000;
+  // a droplet skipped ahead is caught somewhere in its swelling, so they don't all drip at once
+  for (const c of sc.clusters) for (const s of c.shapes)
+    s.tAppear = Math.min(s.tAppear, now - (s.drip ? Math.random() * (s.drip.grow + s.drip.hold * 0.8) : 10));
+  sc.animating = false;
+  finishRun = run;
+  stage.classList.add("done");
+  dirty = true;
+}
+
+// ---------- the shapes ----------
+
+let dirty = true, shapesBusyUntil = 0;   // until then some shape is popping in or shrinking away
+const easeOutBack = e => { const c1 = 1.3, c3 = c1 + 1, u = e - 1; return 1 + c3 * u * u * u + c1 * u * u; };
+
+function drawShape(s, p) {
+  const o = CIRCLES ? CIRCLE : s.base, rr = s.r * SC * p.scale * DPR;
+  const ca = Math.cos(p.rot), sa = Math.sin(p.rot), fx = (1 - 0.05 * p.stretch) * p.sx, fy = (1 + 0.1 * p.stretch) * p.sy;
+  const X = (ox + p.x * SC) * DPR, Y = (oy + p.y * SC) * DPR;
+  const px = new Float32Array(N), py = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    let f = 1;
+    for (const h of s.harm) f += h.a * Math.sin(h.k * o.an[i] + h.ph);
+    const x = o.xs[i] * f * fx, y = o.ys[i] * f * fy;
+    px[i] = X + (x * ca - y * sa) * rr;
+    py[i] = Y + (x * sa + y * ca) * rr;
+  }
+  xShape.beginPath();
+  xShape.moveTo((px[N - 1] + px[0]) / 2, (py[N - 1] + py[0]) / 2);
+  for (let i = 0; i < N; i++) {
+    const j = (i + 1) % N;
+    xShape.quadraticCurveTo(px[i], py[i], (px[i] + px[j]) / 2, (py[i] + py[j]) / 2);
+  }
+  xShape.closePath();
+  xShape.globalAlpha = p.alpha;
+  xShape.fillStyle = markerPats[s.col];
+  xShape.fill();
+  xShape.strokeStyle = edgeCols[s.col];
+  xShape.lineWidth = 1.1 * DPR;
+  xShape.stroke();
+}
+
+// How a shape arrives, by mood: e runs 0 -> 1 over enter.dur. Returns its scale, a squash (x and y
+// stretch), a turn and an opacity.
+const bump = (e, at, w) => Math.exp(-(((e - at) / w) ** 2));
+function entry(kind, e, s) {
+  const out = (n) => 1 - (1 - e) ** n;
+  switch (kind) {
+    case "bounce": {   // joyful: springs in past full size and wobbles to rest, squashing as it goes
+      const b = e >= 1 ? 1 : 1 - Math.exp(-6 * e) * Math.cos(e * 15);
+      return { scale: b, sx: 1 - (b - 1) * 0.6, sy: 1 + (b - 1) * 0.6, rot: 0, alpha: 1 };
+    }
+    case "bloom":      // calm: opens slowly out of the paper, no overshoot
+      return { scale: 0.55 + 0.45 * out(3), sx: 1, sy: 1, rot: 0, alpha: out(2) };
+    case "jitter": {   // stressed: grows in nervous starts, trembling and twitching
+      const d = 1 - e;
+      return { scale: out(2) + Math.sin(e * 46 + s.ph) * 0.1 * d, sx: 1, sy: 1, rot: Math.sin(e * 57 + s.ph) * 0.3 * d, alpha: 1 };
+    }
+    case "heartbeat":  // loved: swells in with two soft beats
+      return { scale: out(4) * (1 + 0.18 * bump(e, 0.55, 0.07) + 0.1 * bump(e, 0.8, 0.06)), sx: 1, sy: 1, rot: 0, alpha: 1 };
+    case "snap": {     // angry: jabs in oversized and twisted, then clamps down hard
+      const sc = e < 0.35 ? (e / 0.35) * 1.35 : 1 + 0.35 * (1 - (e - 0.35) / 0.65) ** 3;
+      return { scale: sc, sx: 1, sy: 1, rot: (1 - e) ** 2 * 0.8 * (s.spin < 0 ? -1 : 1), alpha: 1 };
+    }
+    default: return { scale: e < 1 ? easeOutBack(e) : 1, sx: 1, sy: 1, rot: 0, alpha: 1 };
+  }
+}
+
+// Falling: gravity with air drag, so a shape speeds up and then settles at its own terminal speed;
+// a leaf or blossom drifts from side to side and turns, a droplet drops straight.
+const GRAV = 1300;   // CSS px / s²
+const fallen = (t, vt) => { const tau = vt / GRAV; return vt * (t - tau * (1 - Math.exp(-t / tau))); };
+
+// Where a shape is and how big at time ta: null while not yet grown, "gone" once it has fallen out of
+// the frame. A shape arrives (in its mood's way) when the pen reaches it; a droplet swells instead. It lets go when the
+// eraser reaches its branch, or (a droplet) once it has hung full for a while.
+function pose(s, ta) {
+  if (ta < s.tAppear) return s.tFall != null && s.tAppear > s.tFall ? "gone" : null;
+  const d = REDUCE ? null : s.drip;
+  let release = d ? s.tAppear + d.grow + d.hold : Infinity;
+  if (s.tFall != null) release = Math.min(release, s.tFall);
+  const tg = Math.min(ta, release) - s.tAppear;
+  let scale, stretch = 0, sx = 1, sy = 1, alpha = 1, { x, y, rot } = s;
+  if (d) {
+    const e = clamp(tg / d.grow, 0, 1);
+    scale = 0.08 + 0.92 * (1 - (1 - e) ** 3);   // swelling quickly, then slowly to full
+    stretch = e;                                // and growing heavier at the bottom
+    y += s.r * (scale - 1) * 0.85;              // hanging from the same point as it swells
+  } else {
+    const en = entry(M.enter.kind, clamp(tg / M.enter.dur, 0, 1), s);
+    ({ scale, sx, sy, alpha } = en);
+    rot += en.rot;
+  }
+  if (ta > release) {
+    const tf = ta - release, drop = s.type === "drop";
+    y += fallen(tf, drop ? 560 : 230) / SC;
+    if (!drop) x += (Math.sin(tf * 2.4 + s.ph) * 24 * Math.min(1, tf) + s.vx * tf) / SC;
+    rot += s.spin * tf;
+    if (oy + (y - s.r * 1.6) * SC > H) return "gone";
+  }
+  return { x, y, rot, scale, stretch, sx, sy, alpha };
+}
+
+function drawShapes(ta) {
+  const sc = scene;
+  xShape.setTransform(1, 0, 0, 1, 0, 0);
+  xShape.clearRect(0, 0, shapeCv.width, shapeCv.height);
+  xShape.globalCompositeOperation = "darken";   // overlaps of one colour merge; different colours deepen
+  const draw = s => {
+    const p = pose(s, ta);
+    if (p === "gone") {
+      // a droplet that dripped starts again where it hung; anything let go by the eraser is done
+      if (s.drip && s.tFall == null) {
+        s.tAppear = ta + R(...M.drip.wait);
+        s.drip.grow = R(...M.drip.grow); s.drip.hold = R(...M.drip.hold);
+      } else s.dead = true;
+    } else if (p) drawShape(s, p);
+  };
+  for (const c of visible()) for (const s of c.shapes) draw(s);
+  for (const s of sc.loose) draw(s);
+  sc.loose = sc.loose.filter(s => !s.dead);
+  xShape.globalAlpha = 1;
+  xShape.globalCompositeOperation = "source-over";
+}
+
+// ---------- regrowth ----------
+// wait -> erase (an old branch is rubbed out from its far end back, on the live canvas) -> pause ->
+// draw (a new branch, straight onto the pencil canvas, with the old one's clusters regrown on it)
+
+let cycle = null;
+const clearLive = () => { xLive.setTransform(1, 0, 0, 1, 0, 0); xLive.clearRect(0, 0, liveCv.width, liveCv.height); };
+
+function redrawPencil(sc) {
+  xPen.setTransform(1, 0, 0, 1, 0, 0);
+  xPen.clearRect(0, 0, penCv.width, penCv.height);
+  for (const st of sc.strokes) drawStroke(st, 0, st.m);
+}
+
+function startErase(sc, ta) {
+  const vis = new Set(visible());
+  const cands = sc.arcs.filter(a => a.kind === "branch" && sc.strokes.some(st => st.arc === a));
+  if (!cands.length) return null;
+  // mostly branches that carry something, so the shapes change too
+  const victim = pickW(cands.map(a => [a, sc.clusters.some(c => c.arc === a && vis.has(c)) ? 6 : 1]));
+  const vStrokes = sc.strokes.filter(st => st.arc === victim);
+  sc.strokes = sc.strokes.filter(st => st.arc !== victim);
+  redrawPencil(sc);   // the branch moves to the live canvas, where it is rubbed out
+  // the eraser runs over the part of the arc that shows
+  let sMin = Infinity, sMax = -Infinity;
+  for (const st of vStrokes) { sMin = Math.min(sMin, (st.i0 + st.first) * DS); sMax = Math.max(sMax, (st.i0 + st.lastIn + 1) * DS); }
+  const dur = clamp(((sMax - sMin) * SC) / (M.pencil.speed * 1.6), 0.6, 2.4);
+  const when = s => ta + clamp((sMax - s) / (sMax - sMin || 1), 0, 1) * dur;   // when the eraser passes s
+  const replaced = [];
+  sc.clusters.forEach((c, i) => { if (c.arc === victim) replaced.push(i); });
+  for (const i of replaced) for (const s of sc.clusters[i].shapes) s.tFall = when(sc.clusters[i].t * victim.len);
+  shapesBusyUntil = Math.max(shapesBusyUntil, ta + dur + 5);
+  return { phase: "erase", t0: ta, dur, when, victim, vStrokes, replaced };
+}
+
+function drawErase(cy, ta) {
+  clearLive();
+  for (const st of cy.vStrokes)
+    drawStroke(st, 0, st.m, xLive, (j, a) => {
+      const g = (ta - cy.when((st.i0 + j) * DS)) / 0.5;   // rubbed out g * 0.5 s ago
+      return g <= 0 ? a : a * 0.35 * (1 - g);              // leaving a faint smear that fades
+    });
+}
+
+// a new branch that shows well in the frame: off a branch that's in view, or a sweep through it
+function newBranch(sc) {
+  const v = sc.view, T = M.tree;
+  const parents = sc.arcs.filter(a => a.kind !== "mark");
+  let best = null, bestS = 0;
+  for (let tries = 0; tries < 24; tries++) {
+    let arc;
+    if (rng() < 0.25 || !parents.length) {
+      arc = sweepArc(R(v.x + v.w * 0.15, v.x + v.w * 0.85), R(v.y + v.h * 0.15, v.y + v.h * 0.85));
+    } else {
+      const par = parents[RI(0, parents.length - 1)], idx = [];
+      for (let i = 0; i <= par.nMain; i += 3) if (inV(v, par.xs[i], par.ys[i], -0.1)) idx.push(i);
+      if (!idx.length) continue;
+      const i = idx[RI(0, idx.length - 1)];
+      const a = par.th[i] + (rng() < 0.5 ? 1 : -1) * R(...T.kidAng);
+      arc = spawnArc(par, i / par.nMain, a, R(...T.len) * R(0.45, 0.9), Math.min(par.depth + 1, 3));
+    }
+    let n = 0;
+    for (let i = 0; i <= arc.nMain; i++) if (inV(v, arc.xs[i], arc.ys[i], -0.04)) n++;
+    const lenIn = n * DS * SC;
+    if (n / (arc.nMain + 1) < 0.5 || lenIn < W * 0.25) continue;
+    const sc2 = lenIn + (inV(v, arc.xs[arc.nMain], arc.ys[arc.nMain], -0.04) ? W * 0.3 : 0) + R(0, W * 0.3);
+    if (sc2 > bestS) { best = arc; bestS = sc2; }
+  }
+  return best;
+}
+
+// where on the new branch a cluster goes: its tip or a point along it, as far as possible from the rest
+function spotOn(arc, others, v) {
+  const cands = [];
+  if (arc) for (let j = 0; j < 16; j++) {
+    const t = j === 0 ? 1 : R(0.25, 0.97), i = Math.round(t * arc.nMain);
+    if (inV(v, arc.xs[i], arc.ys[i], 0.02)) cands.push({ x: arc.xs[i], y: arc.ys[i], arc, t, ang: arc.th[i] });
+  }
+  if (!cands.length) for (let j = 0; j < 12; j++) cands.push({ x: R(v.x, v.x + v.w), y: R(v.y, v.y + v.h), arc: null, t: 0, ang: 0 });
+  const gap = c => Math.min(Infinity, ...others.map(o => Math.hypot(o.x - c.x, o.y - c.y)));
+  return cands.reduce((b, c) => (gap(c) > gap(b) ? c : b));
+}
+
+function startDraw(sc, cy, ta) {
+  const arc = newBranch(sc), v = M.pencil.speed / SC;
+  const strokes = arc ? strokesOf(arc) : [];
+  let off = Infinity, end = ta;
+  for (const st of strokes) {
+    st.tStart = st.pass * 0.14 + st.s0 / v;
+    st.dur = Math.max(0.05, (st.s1 - st.s0) / v);
+    off = Math.min(off, st.tStart + (st.first / st.m) * st.dur);
+  }
+  const base = ta - (isFinite(off) ? off : 0);   // the pen comes into the frame now
+  for (const st of strokes) { st.tStart += base; end = Math.max(end, st.tStart + ((st.lastIn + 1) / st.m) * st.dur); }
+  // each erased cluster grows again on the new branch, with as many shapes
+  const others = sc.clusters.filter((c, i) => !cy.replaced.includes(i));
+  for (const i of cy.replaced) {
+    const spot = spotOn(arc, others, sc.view);
+    const c = clusterAt(spot, sc.clusters[i].shapes.length, sc.view.k);
+    const t0 = spot.arc ? Math.max(ta + 0.1, base + (spot.t * arc.len) / v + 0.12) : end;
+    c.shapes.forEach((s, k) => { s.tAppear = t0 + k * 0.14; end = Math.max(end, s.tAppear); });
+    sc.loose.push(...sc.clusters[i].shapes);   // the old shapes may still be falling
+    sc.clusters[i] = c;
+    others.push(c);
+  }
+  shapesBusyUntil = Math.max(shapesBusyUntil, end + M.enter.dur + 0.3);
+  return { phase: "draw", arc, strokes, end };
+}
+
+function regrow(sc, ta) {
+  if (!cycle) cycle = { phase: "wait", until: ta + R(...M.regrow) * 0.6 };
+  switch (cycle.phase) {
+    case "wait":
+      if (ta >= cycle.until) cycle = startErase(sc, ta) || { phase: "wait", until: ta + 2 };
+      break;
+    case "erase":
+      drawErase(cycle, ta);
+      if (ta > cycle.t0 + cycle.dur + 0.5) {
+        clearLive();
+        sc.arcs = sc.arcs.filter(a => a !== cycle.victim);
+        sc.allArcs = sc.allArcs.filter(a => a !== cycle.victim);
+        Object.assign(cycle, { phase: "pause", until: ta + 0.5 });
+      }
+      break;
+    case "pause":
+      if (ta >= cycle.until) cycle = startDraw(sc, cycle, ta);
+      break;
+    case "draw":
+      for (const st of cycle.strokes) {
+        const p = (ta - st.tStart) / st.dur, target = Math.min(st.m, Math.floor(p * st.m) + 1);
+        if (p > 0 && target > st.done) { drawStroke(st, st.done, target); st.done = target; }
+      }
+      if (ta > cycle.end + 0.3) {
+        for (const st of cycle.strokes) if (st.done < st.m) { drawStroke(st, st.done, st.m); st.done = st.m; }
+        if (cycle.arc) { sc.strokes.push(...cycle.strokes); sc.arcs.push(cycle.arc); sc.allArcs.push(cycle.arc); }
+        cycle = { phase: "wait", until: ta + R(...M.regrow) };
+      }
+      break;
+  }
+}
+
+function frame(now) {
+  const sc = scene;
+  if (sc) {
+    const ta = (now - sc.t0) / 1000;
+    let busy = dirty || ta < shapesBusyUntil || sc.loose.length > 0 || (!!M.drip && !REDUCE);
+    if (sc.animating) {
+      busy = true;
+      if (finishRun === run) finish(sc);
+      else {
+        for (const st of sc.strokes) {
+          if (st.done >= st.m) continue;
+          const p = (ta - st.tStart) / st.dur;
+          if (p <= 0) continue;
+          const target = Math.min(st.m, Math.floor(p * st.m) + 1);
+          if (target > st.done) { drawStroke(st, st.done, target); st.done = target; }
+        }
+        let lastShape = sc.end;
+        for (const c of visible()) for (const s of c.shapes) lastShape = Math.max(lastShape, s.tAppear);
+        if (ta > lastShape + M.enter.dur + 0.2) finish(sc);
+      }
+    } else if (!REDUCE) {
+      regrow(sc, ta);
+    }
+    if (busy) drawShapes(ta);
+    dirty = false;
+  }
+  requestAnimationFrame(frame);
+}
+
+// ---------- controls ----------
+
+countIn.addEventListener("input", () => {
+  countOut.value = countIn.value;
+  dirty = true;
+});
+
+stage.addEventListener("click", e => { if (!e.target.closest("button, a, label, input")) finishRun = run; });
+
+const bar = document.getElementById("moods");
+const buttons = {};
+for (const id of ORDER) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = MOODS[id].label;
+  b.title = `${MOODS[id].stage}, ${MOODS[id].hour}`;
+  b.setAttribute("aria-pressed", "false");
+  b.setAttribute("aria-keyshortcuts", String(MOODS[id].key));
+  b.addEventListener("click", () => setMood(id));
+  bar.appendChild(b);
+  buttons[id] = b;
+}
+
+function setMood(id) {
+  if (!MOODS[id]) return;
+  M = MOODS[id];
+  for (const k of ORDER) buttons[k].setAttribute("aria-pressed", String(k === id));
+  try { history.replaceState(null, "", "#" + id); } catch (_) {}
+  paint();
+}
+
+const circlesIn = document.getElementById("circles");
+function setCircles(on) {
+  circlesIn.checked = on;
+  CIRCLES = on;
+  dirty = true;
+}
+circlesIn.addEventListener("change", () => setCircles(circlesIn.checked));
+for (const [sel, on] of [[".switch .off", false], [".switch .on", true]])
+  document.querySelector(sel).addEventListener("click", e => { e.preventDefault(); setCircles(on); });
+
+addEventListener("keydown", e => {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.target.closest?.("input, textarea, select")) return;
+  if (e.key === "c" || e.key === "C") { setCircles(!CIRCLES); return; }
+  const id = ORDER.find(k => String(MOODS[k].key) === e.key);
+  if (id) setMood(id);
+});
+
+document.getElementById("again").onclick = () => paint({ animate: true, fresh: false });
+
+let lastW = innerWidth, lastH = innerHeight;
+addEventListener("resize", () => {
+  if (Math.abs(innerWidth - lastW) + Math.abs(innerHeight - lastH) < 40) return;
+  lastW = innerWidth; lastH = innerHeight;
+  const count = countIn.value;
+  paint({ fresh: false });
+  countIn.value = String(Math.min(+count, +countIn.max));
+  countOut.value = countIn.value;
+});
+
+setMood(MOODS[location.hash.slice(1)] ? location.hash.slice(1) : "joyful");
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

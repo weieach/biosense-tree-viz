@@ -36,7 +36,7 @@ html { scroll-behavior: smooth; }
 
 /* a fixed section nav on the left, the reading column centred in the space beside it */
 .layout {
-  --toc-w: 232px;
+  --toc-w: 340px;
   display: grid;
   grid-template-columns: var(--toc-w) minmax(0, 1fr);
 }
@@ -48,8 +48,8 @@ html { scroll-behavior: smooth; }
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 56px 12px 24px 16px;
+  gap: 0;
+  padding: 56px 16px 24px 16px;
   font-size: 14px;
   line-height: 1.35;
 }
@@ -57,16 +57,24 @@ html { scroll-behavior: smooth; }
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 10px 8px 12px;
+  position: relative;
+  padding: 10px 12px;
   color: var(--muted);
   text-decoration: none;
-  border-left: 2px solid var(--line);
-  border-radius: 0 8px 8px 0;
+  border-radius: 8px;
+}
+/* a hairline between items, inset to the text */
+.toc a + a::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 12px;
+  right: 12px;
+  border-top: 1px solid var(--line);
 }
 .toc a:hover { color: var(--ink); }
 .toc a[aria-current] {
   color: var(--ink);
-  border-left-color: var(--ink);
   background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
 .toc a:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
@@ -91,7 +99,7 @@ article + article {
 @media (max-width: 860px) {
   .layout { display: block; }
   .toc {
-    top: 35px;
+    top: 41px;   /* just under the top bar */
     z-index: 5;
     max-height: none;
     flex-direction: row;
@@ -101,9 +109,9 @@ article + article {
     background: var(--bg);
     border-bottom: 1px solid var(--line);
   }
+  .toc a + a::before { display: none; }
   .toc a {
     flex: none;
-    border-left: 0;
     border: 1px solid var(--line);
     border-radius: 999px;
     padding: 5px 12px;
@@ -112,7 +120,7 @@ article + article {
   .toc-title { white-space: nowrap; }
   .toc-date { display: none; }
   main { padding-top: 40px; }
-  h1 { scroll-margin-top: 104px; }
+  h1 { scroll-margin-top: 110px; }
 }
 p {
   margin: 0 0 24px;

@@ -165,10 +165,14 @@
 // ink, twig, tone: the bark's colour (limbs → twigs) and strength: reddish on pink-flowered trees,
 //   near black on white-flowered ones; dry: how fast a stroke runs dry; weight: stroke width
 // droop: gravity per depth (negative reaches up); kink, kinkGap, wobble: how the hand moves
+// twigKeep: share of the final layer of twigs kept; twigFrom: how far along a branch (0–1) its first
+//   twig may sprout; twigZig, twigKink: zigzag chance and kink for that final layer (default as above)
 // stage: the moment in the cherry's year; mix: what grows at each site (blossom, bud, leaf,
 //   calyx: the red cup left when the petals have gone); colours and sizes of the washes
 // stem, sepal, budCol: flower stalks, the sepals around buds and flowers, the colour of a closed bud
-// spatter: flicked ink; amount: what the amount slider counts; limbs: where the limbs enter the frame
+// budStalk, budLean: a bud's stalk length and how far it angles off the twig
+// spatter: flicked ink; amount: what the amount slider counts; limbs: where the limbs enter the frame,
+//   and optionally their width (w) and how hard they turn at each joint (kink)
 // wind (for the falling petals): amp (how hard it pushes), base (steady lean), pace (speed of its
 //   changes), gustRate (gusts a second), gust (gust strength)
 // fall: petals coming loose each second once the painting is done; air: petals painted in the air
@@ -180,10 +184,12 @@ const MOODS = {
     ink: [46, 28, 32], twig: [124, 56, 66], tone: 0.95, dry: [0.7, 0.95], weight: 0.75,
     droop: [0, 0.0003, 0.002, 0.004], kink: 1.8, kinkGap: [10, 30], wobble: 0.14,
     gap: [[20, 38], [9, 20]], branchP: 0.6, branchAng: [0.5, 1.2], branchLen: [110, 220],
-    twigAng: [0.5, 1.3], twigLen: [25, 75], twigW: [0.9, 2.2],
+    twigAng: [0.5, 1.3], twigLen: [8, 22], twigW: [0.9, 2.2],   // short spurs: buds sit close to the branch
+    twigKeep: 0.55, twigFrom: 0.4, twigZig: 0, twigKink: 0.3,
     mix: { bud: 0.75, blossom: 0.25 },
     blossom: { pink: [244, 214, 222], blush: [222, 160, 176], rose: [150, 90, 104], size: [7, 11], bud: [3.6, 6.2],
                stem: [150, 62, 78], sepal: [132, 40, 58], budCol: [200, 92, 118],
+               budStalk: [0.2, 0.8], budLean: [0.08, 0.22],
                count: [1, 2, 2, 3], spread: 7, density: 0.8, washA: 0.17, stamens: [3, 7] },
     spatter: 14,
     wind: { amp: 3.5, base: 0.08, pace: 1.4, gustRate: 0.22, gust: 1 },
@@ -202,6 +208,9 @@ const MOODS = {
     spatter: 0,
     wind: { amp: 3, base: 0.2, pace: 0.55, gustRate: 0.03, gust: 0.4 },
     fall: 0.08, air: 2,
+    // the view sits further right along the tree: the limbs start well out of frame to the left,
+    // and are longer to still cross it
+    limbs: { side: 1, reach: 0.35, len: [1.3, 1.8] },
   },
   joyful: {
     key: 3, label: "Joyful", stage: "full bloom", amount: "Blossoms",
@@ -209,6 +218,7 @@ const MOODS = {
     droop: [0, -0.0009, -0.0005, 0.0015], kink: 0.75, kinkGap: [34, 80], wobble: 0.05,
     gap: [[32, 60], [16, 32]], branchP: 0.8, branchAng: [0.35, 0.85], branchLen: [160, 290],
     twigAng: [0.35, 0.9], twigLen: [45, 110],
+    twigKeep: 0.6, twigFrom: 0.35,
     mix: { blossom: 0.94, bud: 0.06 },
     blossom: { pink: [249, 215, 214], blush: [238, 168, 170], rose: [198, 118, 120], size: [12, 19], bud: [4, 6],
                stem: [158, 74, 88], sepal: [140, 48, 64], budCol: [214, 112, 134],
@@ -238,7 +248,7 @@ const MOODS = {
     droop: [0, 0.0018, 0.005, 0.011], kink: 0.45, kinkGap: [40, 90], wobble: 0.03,
     gap: [[55, 95], [28, 50]], branchP: 0.5, branchAng: [0.25, 0.55], branchLen: [160, 280],
     twigAng: [0.2, 0.5], twigLen: [70, 160],
-    mix: { blossom: 0.55, calyx: 0.22, none: 0.23 },
+    mix: { blossom: 0.55, none: 0.45 },
     blossom: { pink: [236, 231, 234], blush: [204, 200, 212], rose: [136, 132, 150], size: [9, 14], bud: [4, 6],
                stem: [70, 66, 74], sepal: [118, 92, 104], budCol: [222, 208, 216],
                calyx: [130, 82, 84], ragged: 0.6,
@@ -257,6 +267,7 @@ const MOODS = {
     droop: [0, 0, 0.001, 0.003], kink: 1.7, kinkGap: [14, 40], wobble: 0.04,
     gap: [[30, 58], [14, 28]], branchP: 0.55, branchAng: [0.5, 1.1], branchLen: [120, 240],
     twigAng: [0.6, 1.3], twigLen: [25, 70], twigW: [1.6, 4],
+    twigZig: 0.15, twigKink: 0.8,   // the final twigs only jag a little; the limbs carry the anger
     mix: { none: 0.62, calyx: 0.3, blossom: 0.08 },
     blossom: { pink: [241, 223, 221], blush: [214, 146, 142], rose: [140, 30, 30], size: [7, 11], bud: [4, 6],
                stem: [46, 36, 36], sepal: [104, 38, 38], budCol: [200, 120, 120],
@@ -265,6 +276,8 @@ const MOODS = {
     spatter: 34,
     wind: { amp: 8, base: 0.4, pace: 1.3, gustRate: 0.3, gust: 1.4 },
     fall: 0, gustPetals: 5, air: 6,
+    // the limbs are gnarled: thick enough to show it, turning hard at every joint
+    limbs: { w: [12, 20], kink: 2.3 },
   },
 };
 const ORDER = Object.keys(MOODS).sort((a, b) => MOODS[a].key - MOODS[b].key);
@@ -409,23 +422,35 @@ function makeStroke({ x, y, a, w0, len, depth, tone, start,
   const wrap = () => { while (a < -Math.PI / 2) a += TAU; while (a >= 1.5 * Math.PI) a -= TAU; };
   wrap();
   const seed = rand(1000);
-  let kinkIn = rand(...M.kinkGap), knot = 0;
+  // Branches and twigs turn at angular joints like the limbs, only more often, and they narrow at
+  // every turn, the way cherry wood steps down past each node. Their outer part runs thin, but the
+  // very end stays blunt rather than drawn to a point. Limbs keep a slight swelling at each joint.
+  // Some of them zigzag: shorter runs between joints, each turn going back the other way.
+  const child = depth >= 2 && depth <= 3;
+  const zig = child && random() < (depth === 3 ? M.twigZig ?? 0.4 : 0.4);
+  const gapScale = (depth === 2 ? 0.6 : depth === 3 ? 0.45 : 1) * (zig ? 0.55 : 1);
+  const nextGap = () => Math.max(zig ? 6 : 8, rand(...M.kinkGap) * gapScale);
+  let kinkIn = nextGap(), knot = 0, step = 1, turn = random() < 0.5 ? 1 : -1;
   const n = Math.max(4, Math.round(len / DL));
   for (let i = 0; i < n; i++) {
     const t = i / (n - 1);
-    let w = w0 * (1 - taper * t ** 1.1);
+    let w = w0 * step * (child ? 1 - 0.75 * t ** 1.6 : 1 - taper * t ** 1.1);
     w *= 0.75 + 0.25 * Math.min(1, (i * U) / 4) + (i * U < 3 ? 0.18 : 0);
     if (flare) w *= 1 + flare * Math.max(0, 1 - (i * U) / 14) ** 2;
-    w *= 1 + 0.22 * Math.max(0, 1 - (knot * U) / 4);
-    if (tail && t > 0.86) w *= Math.max(0.12, 1 - (t - 0.86) / 0.14) ** 0.8;
+    w *= 1 + (child ? 0.06 : 0.22) * Math.max(0, 1 - (knot * U) / 4);
+    // a blunt, rounded end: the last stretch narrows a little more, never to a point
+    if (tail && t > 0.86) w *= depth >= 1 ? 1 - 0.3 * ((t - 0.86) / 0.14) ** 1.5 : Math.max(0.12, 1 - (t - 0.86) / 0.14) ** 0.8;
+    if (child) w = Math.max(w, 0.35 * K);
     pts.push({ x, y, w });
     a += (Math.PI / 2 - a) * droop * DL * (0.4 + t) + (vnoise(seed, i * U * 0.06) - 0.5) * M.wobble * U;
     if (hold) a += Math.atan2(Math.sin(hold[0] - a), Math.cos(hold[0] - a)) * hold[1] * U;
     if (x < 30) a += (Math.sin(a) > 0 ? -0.03 : 0.03) * U; else if (x > LW - 30) a += (Math.sin(a) > 0 ? 0.03 : -0.03) * U;
     knot++;
     if ((kinkIn -= DL) <= 0) {
-      a += rand(-0.38, 0.38) * kink;
-      kinkIn = rand(...M.kinkGap); knot = 0;
+      if (zig) { a += turn * rand(0.22, 0.42) * Math.max(kink, 0.7); turn = -turn; }
+      else a += rand(-0.38, 0.38) * kink;
+      step *= zig ? rand(0.9, 0.96) : child ? rand(0.84, 0.93) : rand(0.95, 0.99);
+      kinkIn = nextGap(); knot = 0;
     }
     wrap();
     x += Math.cos(a) * DL; y += Math.sin(a) * DL;
@@ -468,10 +493,13 @@ function buildScene() {
       if (s.depth === 1 && random() < M.branchP) {
         add({ x: p.x, y: p.y, a: a + side * rand(...M.branchAng), w0: p.w * rand(0.45, 0.65),
               len: rand(...M.branchLen) * K, depth: 2, tone: rand(0.82, 0.96), start });
-      } else {
+      } else if ((s.depth === 1 || i >= n * (M.twigFrom || 0)) && random() < (M.twigKeep ?? 1)) {
+        // the final layer of twigs: some moods keep fewer of them, and none sprouting from the first
+        // part of a branch, so they don't break off too close to where the branch itself begins
         const light = random() < 0.2;
         add({ x: p.x, y: p.y, a: a + side * rand(...M.twigAng), w0: clamp(p.w * rand(0.45, 0.6), tw[0] * M.weight, tw[1] * M.weight),
-              len: rand(...M.twigLen) * K, depth: 3, tone: light ? rand(0.35, 0.5) : rand(0.62, 0.92), start });
+              len: rand(...M.twigLen) * K, depth: 3, tone: light ? rand(0.35, 0.5) : rand(0.62, 0.92), start,
+              kink: M.twigKink ?? M.kink });
       }
       i += Math.round((rand(...gap) * K) / DL);
     }
@@ -491,7 +519,7 @@ function buildScene() {
     const tilt = L.tilt ? rand(...L.tilt) : 0.12 - 0.55 * u + rand(-0.1, 0.1);   // radians: + dips, - climbs
     const x = side > 0 ? vx - reach - rand(6, 30) * K : vx + vw + reach + rand(6, 30) * K;
     add({ x, y, a: side > 0 ? tilt : Math.PI - tilt, w0: rand(...(L.w || [16, 30])) * K * M.weight, len: vw * rand(...(L.len || [0.95, 1.45])),
-          depth: 1, tone: rand(0.9, 0.97), start: 10 + limb * rand(12, 36), taper: 0.7 });
+          depth: 1, tone: rand(0.9, 0.97), start: 10 + limb * rand(12, 36), taper: 0.7, kink: L.kink ?? M.kink });
     limb++;
   }
 
@@ -524,8 +552,11 @@ function paintChunk(s, i0, i1) {
   ctx.globalCompositeOperation = "darken";
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
+  // on limbs the edge bristles run dry first ("flying white"); on branches and twigs the brush dries
+  // evenly across its width, so a stroke fades at its end instead of narrowing to a point
+  const edge = s.depth >= 2 ? 0.2 : 1;
   for (const b of s.bristles) {
-    const ink = b.ink - s.dry * t ** 1.3 * (0.5 + Math.abs(b.u));
+    const ink = b.ink - s.dry * t ** 1.3 * (0.5 + edge * Math.abs(b.u));
     const grain = vnoise(mid.x * 0.33 + b.seed, mid.y * 0.33);
     const d = clamp((ink - 0.22 + (grain - 0.5) * 0.55) * 2.3, 0, 1) * s.tone;
     if (d < 0.04) continue;
@@ -673,8 +704,8 @@ function makeItems(strokes, img, t0, t1) {
           if (s.depth < 3 || i < s.pts.length * 0.35 || p.w > 2.4 * K * M.weight) continue;
           // the stalk leaves the twig at a narrow angle, leaning the way the twig grows, and is finer
           // than the twig it comes from
-          const a = head + (random() < 0.5 ? -1 : 1) * rand(0.18, 0.5);
-          const stalk = rand(4, 9) * K;
+          const a = head + (random() < 0.5 ? -1 : 1) * rand(...(B.budLean || [0.18, 0.5]));
+          const stalk = rand(...(B.budStalk || [4, 9])) * K;
           it.sx = p.x + Math.cos(a) * stalk; it.sy = p.y + Math.sin(a) * stalk;
           it.axis = a + rand(-0.12, 0.12);
           it.stalkW = clamp(p.w * 0.45, 0.3 * K, 0.6 * K);
@@ -765,12 +796,14 @@ function dryRim(f, color, lobes) {
   }
 }
 
+// the stamen tips: a tight cluster of ink dots at the flower's heart, each a little different in size
 function stamenDots(f, n) {
   for (let k = 0; k < n; k++) {
-    const a = irand(TAU), r = f.R * irand(0.08, 0.36);
+    const a = irand(TAU), r = f.R * irand(0.05, 0.22);
     const x = f.x + Math.cos(a) * r, y = f.y + Math.sin(a) * r * f.squash;
+    const s = irand(0.65, 1.05) * K;   // dot size, varied a little dot to dot
     ctx.fillStyle = `rgba(${INK},${irand(0.5, 0.85) * M.tone})`;
-    ctx.beginPath(); ctx.ellipse(x, y, irand(0.35, 0.7) * K, irand(0.3, 0.55) * K, irand(TAU), 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x, y, s, s * irand(0.75, 0.95), irand(TAU), 0, TAU); ctx.fill();
   }
 }
 

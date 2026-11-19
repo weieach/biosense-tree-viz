@@ -27,6 +27,9 @@
   .stage.done { cursor: default; }
   .stage canvas, .stage .veil { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   .veil { pointer-events: none; }
+  #gl { visibility: hidden; }
+  .stage.swaying #gl { visibility: visible; }
+  .stage.swaying #trees { visibility: hidden; }
   /* the sun's warmth laid over the whole picture, and the canvas weave under the paint */
   #light { mix-blend-mode: soft-light; opacity: 0.7; }
   #weave { mix-blend-mode: multiply; opacity: 0.55; background-size: 48px 48px; }
@@ -167,6 +170,7 @@
 <div class="stage" id="stage">
   <canvas id="back" aria-hidden="true"></canvas>
   <canvas id="trees" aria-label="A close-up impressionist oil painting of flow-field branches against the sky; click to finish painting"></canvas>
+  <canvas id="gl" aria-hidden="true"></canvas>
   <canvas id="fx" aria-hidden="true"></canvas>
   <div class="veil" id="light"></div>
   <div class="veil" id="weave"></div>
@@ -207,7 +211,9 @@
 // sets an hour and a weather: the light, the palette, how the field turns and how the hand moves.
 // The trees are grown whole in a world as large as the stage, and a camera frames part of the crown
 // from close in, against a plain gradient of sky. Once the painting is done, the trees stay still;
-// petals drift down on the wind and the light comes and goes as clouds cross the sun.
+// petals drift down on the wind and the light comes and goes as clouds cross the sun. Angry is the one
+// exception: its tree is burning. New leaves sprout, catch and rise off the branches as embers, over
+// and over, while the branches bend in a hot wind and the heat above them shimmers.
 (() => {
 "use strict";
 
@@ -224,6 +230,10 @@
 //   that carry one; along: chance per step along a branch; stretch: tall clumps; ang: stroke direction)
 // count: what the count slider counts
 // wind: as in the close-up; fall: petals coming loose each second; fallCols
+// sway: the branches bend in the wind (a WebGL pass), wind.swayAmp CSS px at most; wind.heat: a rising shimmer on top
+// burn: leaves sprout, catch and rise as embers (ember: the colours they burn through; ash: where they
+//   end; rise: CSS px a second; hold: seconds on the branch before they catch; size: an ember's size
+//   against its leaf; sparks: sparks a second crackling off each leaf on the branch)
 
 const MOODS = {
   stressed: {
@@ -297,7 +307,7 @@ const MOODS = {
     fall: 2.6, fallCols: [[226, 222, 234], [200, 196, 216]],
   },
   angry: {
-    key: 6, label: "Angry", stage: "bare branches", count: "Remnants", hour: "storm light",
+    key: 6, label: "Angry", stage: "new leaves burning away", count: "Leaves", hour: "storm light",
     sky: [[66, 50, 80], [150, 70, 62], [232, 122, 60]],
     sun: [0.5, 0.76], sunCol: [255, 150, 60],
     light: [255, 152, 70], shadow: [30, 20, 52], bark: [44, 30, 44], haze: [172, 92, 80],
@@ -307,8 +317,11 @@ const MOODS = {
     fol: { cols: [[152, 30, 30], [112, 24, 32]], bloom: [[255, 140, 70]], bloomP: 0.1,
            size: [3, 6], tips: 0.35, along: 0, maxW: 5, from: 0.3, stretch: 1, dabs: 0.8,
            ang: 0, angJ: 2, len: 0.45, wid: 0.9 },
-    wind: { amp: 11, base: 0.4, flutter: 0.5, tremor: 0.12, pace: 1.3, gustRate: 0.3, gust: 1.4 },
-    fall: 0, gustLeaves: 5, fallCols: [[150, 40, 30], [96, 40, 30], [200, 90, 40]],
+    wind: { amp: 11, base: 0.4, flutter: 0.35, tremor: 0.04, pace: 1.3, gustRate: 0.3, gust: 1.4, swayAmp: 4.5, heat: 0.16 },
+    fall: 0, fallCols: [],
+    sway: true,
+    burn: { ember: [[255, 226, 140], [255, 168, 60], [232, 92, 36], [150, 40, 30]], ash: [64, 52, 56], rise: [80, 150], hold: [1.5, 5],
+            size: 0.55, sparks: 0.9 },
   },
 };
 const ORDER = Object.keys(MOODS).sort((a, b) => MOODS[a].key - MOODS[b].key);
@@ -392,7 +405,7 @@ function layout() {
   const w = stage.clientWidth, h = stage.clientHeight;
   LW = (LH * w) / h;
   S = (h * DPR) / LH;
-  for (const cv of [backCv, treeCv, fxCv]) { cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR); }
+  for (const cv of [backCv, treeCv, glCv, fxCv]) { cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR); }
   tctx.lineCap = "round";
   fctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   fctx.lineCap = "round";
@@ -421,11 +434,12 @@ document.getElementById("weave").style.backgroundImage = `url(${(() => {
 let ROUND = true;
 
 function dab(c, d) {
+  const ridge = d.ridge ?? 1.6;   // below this width a stroke has no visible ridge
   if (d.leaf && ROUND) {
     const [r, g, b] = d.c, rad = d.w / 2;
     c.fillStyle = `rgba(${r},${g},${b},${d.al})`;
     c.beginPath(); c.arc(d.x, d.y, rad, 0, TAU); c.fill();
-    if (d.w < 1.6) return;
+    if (d.w < ridge) return;
     c.fillStyle = `rgba(${Math.min(255, r + 40)},${Math.min(255, g + 38)},${Math.min(255, b + 34)},${0.4 * d.al})`;
     c.beginPath(); c.arc(d.x - rad * 0.3, d.y - rad * 0.38, rad * 0.34, 0, TAU); c.fill();
     c.fillStyle = `rgba(${(r * 0.72) | 0},${(g * 0.72) | 0},${(b * 0.76) | 0},${0.3 * d.al})`;
@@ -437,7 +451,7 @@ function dab(c, d) {
   c.lineWidth = d.w;
   c.strokeStyle = `rgba(${r},${g},${b},${d.al})`;
   c.beginPath(); c.moveTo(d.x - ca, d.y - sa); c.lineTo(d.x + ca, d.y + sa); c.stroke();
-  if (d.flat || d.w < 1.6) return;
+  if (d.flat || d.w < ridge) return;
   let nx = -Math.sin(d.a), ny = Math.cos(d.a);
   if (nx * -0.6 + ny * -0.8 < 0) { nx = -nx; ny = -ny; }
   const o = d.w * 0.3;
@@ -629,7 +643,122 @@ function paintSky() {
 }
 
 // ---------- wind ----------
-// No longer bends the trees: it only carries the falling petals and paces the light.
+// It carries the falling petals and paces the light. For a mood with sway it also bends the trees:
+// as in the close-up, the finished trees are a texture, and a fragment shader shifts each pixel by
+// flex × wind, where flex is a blurred map of how far up the tree that pixel's paint lies. heat adds
+// a fine horizontal shimmer that travels upward, strongest out at the twigs.
+
+// how much a point bends: nothing at the root, most at the top and out on the side branches
+const flexOf = (tr, y, depth) => clamp(clamp((ROOT_Y - y) / tr.H, 0, 1) ** 1.5 * 0.85 + 0.12 * Math.min(depth, 3), 0, 1);
+
+const glCv = document.getElementById("gl");
+const flexCv = document.createElement("canvas");
+const flexCtx = flexCv.getContext("2d", { willReadFrequently: true });
+const FLEX_SCALE = 8;
+
+function buildFlexMap(segs) {
+  const fw = Math.ceil(treeCv.width / FLEX_SCALE), fh = Math.ceil(treeCv.height / FLEX_SCALE);
+  flexCv.width = fw; flexCv.height = fh;
+  const c = flexCtx, z = (S * CAM.z) / FLEX_SCALE;
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.fillStyle = "#000"; c.fillRect(0, 0, fw, fh);
+  c.setTransform(z, 0, 0, z, -CAM.x * z, -CAM.y * z);
+  c.lineCap = "round";
+  const grey = v => { const g = Math.round(clamp(v, 0, 1) * 255); return `rgb(${g},${g},${g})`; };
+  for (const s of [...segs].sort((a, b) => a.depth - b.depth)) {
+    if (!inView(s.x1, s.y1, s.w + 40)) continue;
+    c.strokeStyle = grey(flexOf(s.tr, s.y1, s.depth));
+    c.lineWidth = s.w + 10;
+    c.beginPath(); c.moveTo(s.x0, s.y0); c.lineTo(s.x1, s.y1); c.stroke();
+  }
+  const img = c.getImageData(0, 0, fw, fh), d = img.data, tmp = new Float32Array(fw * fh), val = new Float32Array(fw * fh);
+  for (let i = 0; i < fw * fh; i++) val[i] = d[i * 4];
+  const R = 2;
+  for (let pass = 0; pass < 2; pass++) {
+    for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) {
+      let s = 0, n = 0;
+      for (let k = -R; k <= R; k++) { const xx = x + k; if (xx >= 0 && xx < fw) { s += val[y * fw + xx]; n++; } }
+      tmp[y * fw + x] = s / n;
+    }
+    for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) {
+      let s = 0, n = 0;
+      for (let k = -R; k <= R; k++) { const yy = y + k; if (yy >= 0 && yy < fh) { s += tmp[yy * fw + x]; n++; } }
+      val[y * fw + x] = s / n;
+    }
+  }
+  for (let i = 0; i < fw * fh; i++) { d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = val[i]; d[i * 4 + 3] = 255; }
+  c.putImageData(img, 0, 0);
+}
+
+let GL = null;
+function initGL() {
+  const gl = glCv.getContext("webgl", { premultipliedAlpha: true, alpha: true, antialias: false });
+  if (!gl) return null;
+  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+  const prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER,
+    "attribute vec2 p; varying vec2 uv; void main(){ uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5); gl_Position = vec4(p, 0.0, 1.0); }"));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, `
+    precision mediump float;
+    varying vec2 uv;
+    uniform sampler2D ink, flex;
+    uniform float t, lean, flutter, tremor, heat;
+    uniform vec2 amp, aspect;
+    void main() {
+      float f = texture2D(flex, uv).r;
+      vec2 q = uv * aspect;
+      float ripple = sin(q.x * 4.0 + q.y * 1.5 - t * 1.1) * 0.6 + sin(q.x * 9.0 - q.y * 5.0 + t * 1.7) * 0.4;
+      float shiver = sin(q.x * 41.0 + t * 17.0) * sin(q.y * 37.0 - t * 13.0);
+      float dx = f * (lean + flutter * ripple + tremor * shiver) + heat * sin(q.y * 38.0 + t * 7.0) * (0.25 + f);
+      float dy = f * f * (0.3 * abs(lean) + 0.35 * flutter * ripple);
+      gl_FragColor = texture2D(ink, uv - vec2(dx, dy) * amp);
+    }`));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+  gl.useProgram(prog);
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, "p");
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  const tex = unit => {
+    const tx = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, tx);
+    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR],
+                          [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+    return tx;
+  };
+  const inkTex = tex(0), flexTex = tex(1);
+  gl.uniform1i(gl.getUniformLocation(prog, "ink"), 0);
+  gl.uniform1i(gl.getUniformLocation(prog, "flex"), 1);
+  const u = name => gl.getUniformLocation(prog, name);
+  return { gl, inkTex, flexTex, t: u("t"), lean: u("lean"), flutter: u("flutter"), tremor: u("tremor"), heat: u("heat"), amp: u("amp"), aspect: u("aspect") };
+}
+
+function uploadTextures(withFlex = true) {
+  const { gl, inkTex, flexTex } = GL;
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, inkTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, treeCv);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+  if (!withFlex) return;
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, flexTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, flexCv);
+}
+
+// the sway the shader gives a point, in CSS px, so leaves on the effects layer move with their twigs
+const sway = { on: false, px: 0, lean: 0, flutter: 0, tremor: 0, heat: 0 };
+function swayAt(x, y, f) {
+  if (!sway.on) return [0, 0];
+  const w = stage.clientWidth, h = stage.clientHeight, qx = (x / w) * (w / h), qy = y / h, t = wind.t;
+  const ripple = Math.sin(qx * 4 + qy * 1.5 - t * 1.1) * 0.6 + Math.sin(qx * 9 - qy * 5 + t * 1.7) * 0.4;
+  const shiver = Math.sin(qx * 41 + t * 17) * Math.sin(qy * 37 - t * 13);
+  const dx = f * (sway.lean + sway.flutter * ripple + sway.tremor * shiver) + sway.heat * Math.sin(qy * 38 + t * 7) * (0.25 + f);
+  const dy = f * f * (0.3 * Math.abs(sway.lean) + 0.35 * sway.flutter * ripple);
+  return [dx * sway.px, dy * sway.px];
+}
 
 const wind = { lean: 0, gust: 0, gustT0: 0, gustDur: 0, gustStr: 0, nextGust: 0, t: 0 };
 function updateWind(now, dt) {
@@ -687,6 +816,112 @@ function drawFlecks(dt) {
   });
 }
 
+// ---------- burning leaves (Angry) ----------
+// The leaves live on the effects layer instead of in the painting, drawn with the same brush, so on the
+// branch they look exactly as painted. Each one waits, sprouts on its twig, holds, then catches and
+// rises off the branch on the hot air, burning through the ember colours to ash as it fades; then it
+// sprouts again. Leaves of a clump catch close together, so the crown burns patch by patch. Timing uses
+// Math.random, so the painting's own seed is untouched.
+
+let embers = [], sparks = [];
+const mr = (a, b) => a + Math.random() * (b - a);
+const burnLive = () => !!M.burn && !REDUCE;
+
+function buildEmbers() {
+  const k = (CAM.z * stage.clientHeight) / LH, B = M.burn, old = new Map(embers.map(e => [e.d, e]));
+  embers = [];
+  for (const d of scene.T) {
+    if (!d.cl || d.cl.rank >= paintedAmount || !inView(d.x, d.y, 20)) continue;
+    let e = old.get(d);
+    if (!e) {
+      if (d.cl.lag === undefined) d.cl.lag = mr(0, 4);   // a clump's leaves sprout and catch together
+      e = { d, hx: cssX(d.x), hy: cssY(d.y), s: d.w * k, l: d.len * k, f: flexOf(d.cl.tr, d.cl.y, 2), k,
+            phase: "wait", t: 0, dur: d.cl.lag + mr(0, 0.6), hold: mr(...B.hold) };
+    }
+    embers.push(e);
+  }
+}
+
+const ease = u => u * u * (3 - 2 * u);
+function emberColour(u) {   // u: 0 just caught → 1 ash
+  const E = M.burn.ember, n = E.length;
+  if (u >= 0.75) return mix(E[n - 1], M.burn.ash, (u - 0.75) / 0.25);
+  const x = (u / 0.75) * (n - 1), i = Math.min(n - 2, Math.floor(x));
+  return mix(E[i], E[i + 1], x - i);
+}
+
+// sparks: tiny bright points that crackle off a leaf on the branch and wink out within a moment
+function drawSparks(dt) {
+  fctx.globalCompositeOperation = "lighter";
+  sparks = sparks.filter(p => {
+    p.t += dt;
+    if (p.t >= p.life) return false;
+    p.vy -= 60 * dt; p.vx *= 1 - dt * 2;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    const u = p.t / p.life, flick = 0.6 + 0.4 * Math.sin(p.t * 60 + p.ph);
+    fctx.fillStyle = rgba(emberColour(u * 0.7), (0.95 * (1 - u) * flick).toFixed(3));
+    fctx.beginPath(); fctx.arc(p.x, p.y, p.r * (1 - 0.5 * u), 0, TAU); fctx.fill();
+    return true;
+  });
+  fctx.globalCompositeOperation = "source-over";
+}
+
+function drawEmbers(dt) {
+  const B = M.burn, push = wind.lean * 70 * M.wind.amp / 6;
+  for (const e of embers) {
+    e.t += dt;
+    if (e.t >= e.dur) {
+      e.t -= e.dur;
+      if (e.phase === "wait") { e.phase = "sprout"; e.dur = mr(0.7, 1.3); }
+      else if (e.phase === "sprout") { e.phase = "hold"; e.dur = e.hold + mr(0, 0.8); }
+      else if (e.phase === "hold") {
+        e.phase = "burn"; e.dur = mr(1.4, 2.4);
+        e.x = e.hx; e.y = e.hy; e.vx = 0; e.vy = -mr(...B.rise) * 0.4; e.rot = e.d.a; e.vr = mr(-2.5, 2.5); e.ph = mr(0, TAU);
+      } else { e.phase = "wait"; e.dur = mr(0.4, 2.2); e.hold = mr(...B.hold); }
+    }
+    const u = Math.min(1, e.t / e.dur);
+    let x, y, size, a, col, alpha, glow = 0;
+    if (e.phase === "wait") continue;
+    if (e.phase === "burn") {
+      // hot air: it speeds up as it rises, drifts with the wind and flickers side to side
+      e.vy += (-mr(...B.rise) - e.vy) * Math.min(1, dt * 1.5);
+      e.vx += (push * 0.6 - e.vx) * Math.min(1, dt * 1.2);
+      e.ph += dt * 9;
+      e.x += (e.vx + Math.sin(e.ph) * 14) * dt; e.y += e.vy * dt; e.rot += e.vr * dt;
+      x = e.x; y = e.y; a = e.rot;
+      size = B.size * (1 - 0.6 * u);
+      col = u < 0.12 ? mix(e.d.c, M.burn.ember[0], u / 0.12) : emberColour((u - 0.12) / 0.88);   // its own colour flares, then burns down
+      alpha = u < 0.8 ? 0.95 : 0.95 * (1 - (u - 0.8) / 0.2);
+      glow = u < 0.6 ? 1 - u / 0.6 : 0;
+    } else {
+      const [ox, oy] = swayAt(e.hx, e.hy, e.f);
+      x = e.hx + ox; y = e.hy + oy; a = e.d.a;
+      if (e.phase === "sprout") { size = ease(u); col = e.d.c; alpha = e.d.al * Math.min(1, u * 2); }
+      else {
+        size = 1; col = e.d.c; alpha = e.d.al;
+        // it crackles: now and then a spark jumps off it
+        if (Math.random() < B.sparks * dt)
+          sparks.push({ x: x + mr(-1, 1) * e.s, y: y + mr(-1, 1) * e.s, vx: mr(-40, 40), vy: -mr(20, 90), r: mr(0.6, 1.3),
+                        t: 0, life: mr(0.25, 0.7), ph: mr(0, TAU) });
+      }
+    }
+    const s = e.s * size;
+    if (s < 0.3) continue;
+    if (glow > 0) {
+      // a soft heat glow, added to what is behind it
+      const r = s * 2.2, g = fctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, rgba(B.ember[1], (0.3 * glow).toFixed(3)));
+      g.addColorStop(1, rgba(B.ember[2], 0));
+      fctx.globalCompositeOperation = "lighter";
+      fctx.fillStyle = g;
+      fctx.beginPath(); fctx.arc(x, y, r, 0, TAU); fctx.fill();
+      fctx.globalCompositeOperation = "source-over";
+    }
+    // the painting's own stroke, in CSS px: round or long, with its ridge of paint
+    dab(fctx, { x, y, a, len: e.l * size, w: s, c: col, al: alpha, leaf: true, ridge: 1.6 * e.k });
+  }
+}
+
 // ---------- light ----------
 // The sun's colour, over everything in soft-light. Once the painting is done it comes and goes, as if
 // clouds were crossing the sun.
@@ -720,8 +955,8 @@ function paint({ animate = false, fresh = true } = {}) {
   rng = seeded(seed);
   if (!animate) finishRun = id;
   if (!stage.clientWidth || !stage.clientHeight) return;
-  stage.classList.remove("done");
-  falling = []; clumps = []; scene = null;
+  stage.classList.remove("done", "swaying");
+  falling = []; clumps = []; scene = null; embers = []; sparks = []; sway.on = false;
   layout();
   fctx.clearRect(0, 0, stage.clientWidth, stage.clientHeight);
   tctx.save(); tctx.setTransform(1, 0, 0, 1, 0, 0); tctx.clearRect(0, 0, treeCv.width, treeCv.height); tctx.restore();
@@ -738,7 +973,7 @@ function paint({ animate = false, fresh = true } = {}) {
   const step = () => {
     if (ti < T.length) {
       growth += SUB;
-      for (; ti < T.length && T[ti].t <= growth; ti++) if (!T[ti].cl || T[ti].cl.rank < paintedAmount) dab(tctx, T[ti]);
+      for (; ti < T.length && T[ti].t <= growth; ti++) if (!T[ti].cl || (!burnLive() && T[ti].cl.rank < paintedAmount)) dab(tctx, T[ti]);
       return true;
     }
     return false;
@@ -749,6 +984,12 @@ function paint({ animate = false, fresh = true } = {}) {
     if (paintedAmount !== amount()) repaintTrees();   // the slider moved while the painting was being skipped
     clumps = visibleAt(paintedAmount);
     if (REDUCE) return;
+    if (burnLive()) buildEmbers();
+    if (M.sway && GL) {
+      buildFlexMap(sc.segs);
+      uploadTextures();
+      stage.classList.add("swaying");
+    }
     const start = performance.now();
     let last = start;
     wind.nextGust = start + rand(1500, 4000); wind.gustDur = 1; wind.gustT0 = -1e9;
@@ -756,12 +997,29 @@ function paint({ animate = false, fresh = true } = {}) {
       if (id !== run) return;
       const dt = Math.min(0.05, (now - last) / 1000); last = now;
       updateWind(now, dt);
-      const rise = clamp((now - start) / 2500, 0, 1);
-      // the light breathes as clouds pass, a little faster in gusty moods
-      lightEl.style.opacity = (0.45 + 0.55 * n01(wind.t * 0.18, 9.1) * rise + 0.3 * (1 - rise)).toFixed(3);
+      const rise = clamp((now - start) / 2500, 0, 1), W = M.wind;
+      if (stage.classList.contains("swaying")) {
+        const { gl } = GL, w = glCv.width, h = glCv.height;
+        const px = (W.swayAmp ?? W.amp) * DPR * rise * (0.5 - 0.5 * Math.cos(Math.PI * rise));
+        Object.assign(sway, { on: true, px: px / DPR, lean: wind.lean, flutter: W.flutter * (1 + wind.gust * 0.6),
+                              tremor: W.tremor * (0.4 + wind.gust), heat: W.heat || 0 });
+        gl.viewport(0, 0, w, h);
+        gl.uniform1f(GL.t, wind.t);
+        gl.uniform1f(GL.lean, sway.lean);
+        gl.uniform1f(GL.flutter, sway.flutter);
+        gl.uniform1f(GL.tremor, sway.tremor);
+        gl.uniform1f(GL.heat, sway.heat);
+        gl.uniform2f(GL.amp, px / w, px / h);
+        gl.uniform2f(GL.aspect, w / h, 1);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      }
+      // the light breathes as clouds pass; a burning tree's light flickers like firelight
+      const breath = M.burn ? 0.55 + 0.3 * n01(wind.t * 1.6, 9.1) + 0.12 * n01(wind.t * 5, 2.3) : 0.45 + 0.55 * n01(wind.t * 0.18, 9.1);
+      lightEl.style.opacity = (breath * rise + 0.7 * (1 - rise)).toFixed(3);
       fallAcc += dt * (M.fall * (0.6 + wind.gust) + (M.gustLeaves || 0) * wind.gust ** 2) * rise;
       while (fallAcc >= 1) { fallAcc -= 1; spawnFleck(!!M.gustLeaves); }
       drawFlecks(dt);
+      if (embers.length) { drawEmbers(dt); drawSparks(dt); }
       requestAnimationFrame(blow);
     })(start);
   };
@@ -781,13 +1039,14 @@ function repaintTrees() {
   const from = paintedAmount;
   paintedAmount = amount();
   if (paintedAmount > from) {
-    for (const d of scene.T) if (d.cl && d.cl.rank >= from && d.cl.rank < paintedAmount) dab(tctx, d);
-  } else {
+    if (!burnLive()) for (const d of scene.T) if (d.cl && d.cl.rank >= from && d.cl.rank < paintedAmount) dab(tctx, d);
+  } else if (!burnLive()) {
     tctx.save(); tctx.setTransform(1, 0, 0, 1, 0, 0); tctx.clearRect(0, 0, treeCv.width, treeCv.height); tctx.restore();
     for (const d of scene.T) if (!d.cl || d.cl.rank < paintedAmount) dab(tctx, d);
   }
   clumps = visibleAt(paintedAmount);
   countOut.value = String(clumps.length);
+  if (burnLive() && stage.classList.contains("done")) buildEmbers();   // burning leaves follow the slider directly
 }
 
 let countQueued = false;
@@ -855,6 +1114,7 @@ addEventListener("resize", () => {
   paint({ fresh: false });
 });
 
+GL = REDUCE ? null : initGL();
 setMood(MOODS[location.hash.slice(1)] ? location.hash.slice(1) : "calm");
 })();
 </script>
